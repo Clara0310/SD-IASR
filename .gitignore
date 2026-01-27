@@ -1,6 +1,7 @@
 #data output from raw data preprocess
 data_preprocess/stats/
 data_preprocess/tmp/
+data_preprocess/data/
 
 #raw data folder
 data_preprocess/raw_data/
