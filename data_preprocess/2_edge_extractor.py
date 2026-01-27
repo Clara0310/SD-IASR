@@ -1,0 +1,1 @@
+# 修改：分別提取 also_view (Sim) 與 also_buy (Rel)

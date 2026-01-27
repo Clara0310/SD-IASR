@@ -1,2 +1,5 @@
-datasets/
-test.py
+#data output from raw data preprocess
+data_preprocess/stats/
+data_preprocess/tmp/
+#raw data folder
+data_preprocess/raw_data/
