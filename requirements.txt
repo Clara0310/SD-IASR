@@ -1,1 +1,20 @@
-# 環境依賴
+# 核心深度學習框架 (固定與 vision/audio 相容的版本)
+torch==1.13.0
+torchvision==0.14.0
+torchaudio==0.13.0
+
+# 科學運算與矩陣處理
+numpy==1.24.3
+scipy==1.10.1
+pandas
+
+# 機器學習工具
+scikit-learn
+
+# 自然語言處理 (用於 BERT 分類嵌入生成)
+transformers
+tokenizers
+
+# 其他實用工具
+pyyaml
+tqdm
