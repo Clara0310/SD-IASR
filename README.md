@@ -50,12 +50,13 @@ pip install -r requirements.txt
 
 ## 4. 訓練與評估
 
-使用 `run.py` 啟動模型訓練，可調整超參數以控制模型行為：
+
+我們建議使用根目錄下的 `run.sh` 腳本啟動模型訓練，這會自動處理參數傳遞並備份實驗設定：
 
 ```bash
-python run.py --dataset Grocery_and_Gourmet_Food --embedding_dim 16 --lr 0.005 --patience 200
-
-```
+# 賦予執行權限並啟動
+chmod +x run.sh
+./run.sh
 
 ### 關鍵超參數：
 
