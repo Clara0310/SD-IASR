@@ -10,3 +10,6 @@ data_preprocess/raw_data/
 
 #虛擬環境
 .venv/
+__pycache__/
+*.pyc
+.DS_Store
