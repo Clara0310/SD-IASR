@@ -9,3 +9,4 @@ lr: 0.005
 max_seq_len: 50
 mid_k: 2
 patience: 50
+resume: false
