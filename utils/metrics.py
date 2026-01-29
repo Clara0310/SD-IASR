@@ -1,59 +1,63 @@
-# 計算 HR@k, NDCG
-
-import numpy as np
 import torch
+import numpy as np
 
-def get_metrics(real_item_idx, scores, k_list=[10, 20]):
+def get_metrics(item_num, scores, k_list=[5, 10, 20]):
     """
-    計算 HR@K 與 NDCG@K 指標
+    計算 1:99 負採樣下的評估指標
     
-    參數:
-    - real_item_idx: 正確商品在 scores 中的索引。
-      在我們的 7_dataset_split.py 設計中，正樣本總是放在第 0 位。
-    - scores: 模型輸出的預測分數，形狀為 [batch_size, 1 + neg_num]。
-    - k_list: 要評估的 Top-K 門檻，例如 [10, 20]。
-    
-    返回:
-    - metrics: 包含所有 K 值的 HR 與 NDCG 的字典。
+    Args:
+        item_num: 總商品數量 (用於負採樣，但在此模式下主要參考 scores 結構)
+        scores: 模型對正樣本與負樣本的預測得分，Shape 應為 [batch_size, 1 + neg_num]
+        k_list: 要計算的 Top-K 列表
     """
     metrics = {}
+    batch_size = scores.shape[0]
     
-    # 1. 取得分數最高的前 max(k) 個索引
-    # topk_indices shape: [batch_size, max_k]
-    _, topk_indices = torch.topk(scores, max(k_list), dim=-1)
+    # 在 1:99 模式中，通常 scores 的第 0 欄是正樣本
+    # 我們計算正樣本在所有 100 個候選商品中的排名
+    _, indices = torch.sort(scores, descending=True, dim=-1)
     
-    # 2. 將 GPU 張量轉為 CPU/Numpy 方便計算
-    topk_indices = topk_indices.cpu().numpy()
+    # 找出正樣本 (索引為 0) 在排序後的排名位置
+    # rank shape: [batch_size], 數值從 0 開始 (0 代表排在第 1 名)
+    ranks = (indices == 0).nonzero(as_tuple=True)[1]
     
-    # 根據 7_dataset_split.py，正樣本在輸入 scores 時位於 index 0
-    target_label = 0 
-    batch_size = scores.size(0)
-
     for k in k_list:
-        hr_count = 0
-        ndcg_sum = 0.0
+        # Hit Ratio @ K: 正樣本排名在 K 之前的比例
+        hit_at_k = (ranks < k).float().mean().item()
+        metrics[f'HR@{k}'] = hit_at_k
         
-        for i in range(batch_size):
-            # 取得單個使用者的前 K 個預測結果
-            target_top_k = topk_indices[i, :k]
-            
-            # 檢查正樣本是否在 Top-K 中 (HR)
-            if target_label in target_top_k:
-                hr_count += 1
-                
-                # 計算 NDCG (考慮排名權重)
-                # rank 為正樣本在列表中的位置 (0-based)
-                rank = np.where(target_top_k == target_label)[0][0]
-                # 公式: 1 / log2(rank + 2)
-                ndcg_sum += 1.0 / np.log2(rank + 2)
-        
-        # 計算批次平均值
-        metrics[f'HR@{k}'] = hr_count / batch_size
-        metrics[f'NDCG@{k}'] = ndcg_sum / batch_size
+        # NDCG @ K: 考慮排名先後的歸一化折損累計增益
+        # 公式: 1 / log2(rank + 2)
+        ndcg_at_k = (ranks < k).float() * (1 / torch.log2(ranks.float() + 2))
+        metrics[f'NDCG@{k}'] = ndcg_at_k.mean().item()
         
     return metrics
 
 def print_metrics(metrics):
-    """格式化輸出指標結果"""
-    output_str = " | ".join([f"{key}: {val:.4f}" for key, val in metrics.items()])
-    print(f"Results: {output_str}")
+    """格式化印出評估結果"""
+    output = []
+    # 依照鍵值排序確保輸出整齊
+    for key in sorted(metrics.keys()):
+        output.append(f"{key}: {metrics[key]:.4f}")
+    print(" | ".join(output))
+
+# 如果您未來需要進行全量排序，可以保留此函數作為備用
+def get_all_item_metrics(scores, targets, k_list=[10, 20]):
+    """全量商品排序評估 (原版邏輯)"""
+    metrics = {}
+    _, topk_indices = torch.topk(scores, max(k_list), dim=-1)
+    
+    for k in k_list:
+        hit = 0
+        ndcg = 0
+        for i in range(len(targets)):
+            target = targets[i]
+            topk = topk_indices[i][:k]
+            if target in topk:
+                hit += 1
+                rank = (topk == target).nonzero(as_tuple=True)[0].item()
+                ndcg += 1 / np.log2(rank + 2)
+        
+        metrics[f'HR@{k}'] = hit / len(targets)
+        metrics[f'NDCG@{k}'] = ndcg / len(targets)
+    return metrics
