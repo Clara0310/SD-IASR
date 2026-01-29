@@ -1,4 +1,5 @@
-# 新增：雙通道 Transformer 與 Fusion Pooling
+# models/sequential_encoder.py
+# 修正維度對齊與遮罩邏輯後的完整版本
 
 import torch
 import torch.nn as nn
@@ -36,6 +37,7 @@ class MultiChannelTransformer(nn.Module):
 
     def forward(self, seq_embs, mask=None):
         # 加上位置編碼後送入 Transformer
+        # 注意：mask 格式需為 [batch, seq_len]，True 表示該位置被遮蔽
         x = self.pos_encoder(seq_embs)
         output = self.transformer(x, src_key_padding_mask=mask)
         return output
@@ -43,7 +45,7 @@ class MultiChannelTransformer(nn.Module):
 class IntentCapture(nn.Module):
     def __init__(self, emb_dim):
         super(IntentCapture, self).__init__()
-        # 用於計算注意力分數的權重矩陣
+        # 用於計算注意力分數的權重網路
         self.attention_net = nn.Sequential(
             nn.Linear(emb_dim, emb_dim),
             nn.Tanh(),
@@ -55,25 +57,29 @@ class IntentCapture(nn.Module):
         實作 Fusion Pooling 策略
         """
         # 1. 取序列最後一個位置作為近期意圖 (Recent Intent: U_last)
-        # 假設 seq_output 是 [batch, seq_len, emb_dim]
         u_last = seq_output[:, -1, :]
 
         # 2. 計算注意力池化作為全局意圖 (Global Intent: U_att)
         attn_weights = self.attention_net(seq_output).squeeze(-1) # [batch, seq_len]
+        
+        # 修正：確保遮罩維度與 attn_weights 嚴格對齊 (皆為 50)
         if mask is not None:
-            attn_weights = attn_weights.masked_fill(mask, -1e9)
+            # 使用 float('-inf') 確保 Padding 位置在 Softmax 後權重為 0
+            attn_weights = attn_weights.masked_fill(mask, float('-inf'))
         
         attn_weights = F.softmax(attn_weights, dim=-1)
+        
+        # 數值穩定性：防止序列全為 Padding 時產生的 NaN
+        attn_weights = torch.nan_to_num(attn_weights)
+        
         u_att = torch.bmm(attn_weights.unsqueeze(1), seq_output).squeeze(1) # [batch, emb_dim]
 
-        # 3. 融合意圖 (這裡使用拼接或加權，論文建議融合後輸出)
-        # 為了保持維度一致，這裡採用相加或後續由 Predictor 處理
         return u_last, u_att
 
 class SequentialEncoder(nn.Module):
     def __init__(self, emb_dim, max_seq_len=50):
         super(SequentialEncoder, self).__init__()
-        # 雙通道 Transformer
+        # 雙通道 Transformer 架構
         self.sim_transformer = MultiChannelTransformer(emb_dim)
         self.rel_transformer = MultiChannelTransformer(emb_dim)
         
@@ -83,6 +89,7 @@ class SequentialEncoder(nn.Module):
         """
         sim_seq_embs: 相似性特徵序列 [batch, seq_len, emb_dim]
         rel_seq_embs: 互補性特徵序列 [batch, seq_len, emb_dim]
+        mask: Padding Mask [batch, seq_len]
         """
         # 通道 1: 處理相似性行為路徑
         sim_out = self.sim_transformer(sim_seq_embs, mask)
