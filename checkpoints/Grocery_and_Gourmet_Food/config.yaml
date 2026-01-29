@@ -1,12 +1,12 @@
 batch_size: 256
 dataset: Grocery_and_Gourmet_Food
-embedding_dim: 16
+embedding_dim: 64
 epochs: 1000
 gpu: 0
 lambda_3: 0.01
-low_k: 2
+low_k: 3
 lr: 0.005
 max_seq_len: 50
-mid_k: 2
+mid_k: 3
 patience: 50
-resume: false
+resume: true
