@@ -18,7 +18,7 @@ MID_K=2            # 中通濾波器階數 (捕捉互補性)
 ALPHA=0.5          # 相似性權重
 LAMBDA_3=0.01      # 正則化項權重
 
-# 執行訓練指令
+# 執行訓練指令 (請注意變數名稱的大小寫一致性)
 python run.py \
     --dataset $DATASET \
     --embedding_dim $EMB_DIM \
@@ -26,8 +26,7 @@ python run.py \
     --batch_size $BATCH_SIZE \
     --epochs $EPOCHS \
     --patience $PATIENCE \
-    --low_k $LOW_k \
-    --mid_k $MID_k \
-    --alpha $ALPHA \
+    --low_k $LOW_K \
+    --mid_k $MID_K \
     --lambda_3 $LAMBDA_3 \
     --gpu 0
