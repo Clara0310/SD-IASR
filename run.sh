@@ -4,7 +4,7 @@
 DATASET="Grocery_and_Gourmet_Food"
 
 # 2. 模型基礎超參數
-EMB_DIM=16
+EMB_DIM=64 #16 -> 64 ，提升嵌入維度以增強表達能力
 LR=0.005
 BATCH_SIZE=256
 EPOCHS=1000
@@ -13,8 +13,8 @@ MAX_SEQ_LEN=50
 
 # 3. SD-IASR 核心解耦參數
 # low_k 與 mid_k 控制圖譜濾波器的傳播步數
-LOW_K=2
-MID_K=2
+LOW_K=3 #2 -> 3 ，增加低頻傳播步數以捕捉更多鄰居資訊
+MID_K=3 #2 -> 3 ，增加中頻傳播步數以捕捉更多鄰居資訊
 # lambda_3 控制模型正則化強度
 LAMBDA_3=0.01
 
