@@ -3,6 +3,7 @@ data_preprocess/stats/
 data_preprocess/tmp/
 data_preprocess/data/
 data_preprocess/embs/
+data_preprocess/processed/
 
 #raw data folder
 data_preprocess/raw_data/
