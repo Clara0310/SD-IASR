@@ -1,5 +1,3 @@
-# 程式進入點，包含訓練與評估邏輯
-
 import torch
 import torch.optim as optim
 import argparse
@@ -32,6 +30,9 @@ def main():
     parser.add_argument('--lambda_3', type=float, default=0.01, help='Regularization weight')
     parser.add_argument('--max_seq_len', type=int, default=50)
     
+    # 新增：續跑功能開關
+    parser.add_argument('--resume', action='store_true', help='是否從上次的最佳權重續跑')
+    
     args = parser.parse_args()
 
     # 1. 建立 Checkpoints 目錄與儲存 Config
@@ -53,25 +54,32 @@ def main():
     train_loader, val_loader, test_loader, raw_data = get_loader(data_path, args.batch_size, args.max_seq_len)
     
     num_items = raw_data['features'].shape[0]
-    # 建立雙視角譜拉普拉斯矩陣
     sim_laplacian = create_laplacian(raw_data['sim_edge_index'], num_items).to(device)
     com_laplacian = create_laplacian(raw_data['com_edge_index'], num_items).to(device)
 
     # 4. 初始化模型與 Loss
     model = SDIASR(num_items, args.embedding_dim, args.low_k, args.mid_k, args.max_seq_len).to(device)
     
-    # 載入 BERT 預訓練嵌入 (若維度一致可取消註釋)
-    # model.load_pretrain_embedding(raw_data['features']) 
-
     criterion = SDIASRLoss(lambda_reg=args.lambda_3)
     optimizer = optim.Adam(model.parameters(), lr=args.lr)
 
-    # 5. 訓練與驗證循環
+    # --- 新增：續跑邏輯 (Resume Logic) ---
     best_hr = 0
-    early_stop_count = 0
+    start_epoch = 0
     model_save_path = os.path.join(checkpoint_dir, "best_model.pth")
+
+    if args.resume and os.path.exists(model_save_path):
+        print(f"找到現有權重，正在從 {model_save_path} 載入並續跑...")
+        checkpoint = torch.load(model_save_path)
+        model.load_state_dict(checkpoint)
+        print("權重載入成功！")
+        # 由於我們沒有額外儲存 epoch 資訊，這裡會從第 0 輪開始重新優化，但權重是基礎好的
+    # ----------------------------------
+
+    # 5. 訓練與驗證循環
+    early_stop_count = 0
     
-    for epoch in range(args.epochs):
+    for epoch in range(start_epoch, args.epochs):
         model.train()
         total_loss = 0
         pbar = tqdm(train_loader, desc=f"Epoch {epoch}")
@@ -109,7 +117,7 @@ def main():
         else:
             early_stop_count += 1
             if early_stop_count >= args.patience:
-                print(f"Early stopping triggered after {args.patience} epochs without improvement.")
+                print(f"Early stopping triggered after {args.patience} epochs.")
                 break
 
     # 6. 最終測試

@@ -30,3 +30,4 @@ python run.py \
     --mid_k $MID_K \
     --lambda_3 $LAMBDA_3 \
     --gpu 0
+    --resume
