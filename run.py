@@ -125,7 +125,7 @@ def main():
     #暫時註解掉訓練
 
     # 6. 最終測試
-    # print("\n" + "="*20 + " Final Testing " + "="*20)
+    print("\n" + "="*20 + " Final Testing " + "="*20)
     # model.load_state_dict(torch.load(model_save_path))
     # model.eval()
     # test_scores = []
@@ -152,20 +152,15 @@ def main():
             
             # --- 核心修改：負採樣產生 ---
             # 為每個 batch 隨機產生 99 個負樣本 (排除掉 targets)
-                                
-            # 修改後的負採樣邏輯
-            sampled_indices = []
+            neg_samples = []
             for target in targets:
-                # 使用 .flatten()[0] 確保只取得一個元素，不論維度如何
-                pos = target.flatten()[0].item() 
                 neg = []
                 while len(neg) < 99:
                     n = np.random.randint(1, num_items)
-                    if n != pos:
+                    if n != target.item():
                         neg.append(n)
-                sampled_indices.append([pos] + neg)    
-            
-            neg_samples = torch.LongTensor(sampled_indices).to(device) # [batch, 99]
+                neg_samples.append(neg)
+            neg_samples = torch.LongTensor(neg_samples).to(device) # [batch, 99]
             
             # 組合正負樣本: [batch, 100] (第 0 欄是正樣本)
             test_items = torch.cat([targets.unsqueeze(1), neg_samples], dim=1)
