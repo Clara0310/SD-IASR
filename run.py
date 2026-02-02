@@ -136,7 +136,7 @@ def main():
             test_scores.append(scores)
         
         all_test_scores = torch.cat(test_scores, dim=0)
-        final_results = get_metrics(0, all_test_scores, k_list=[10, 20])
+        final_results = get_metrics(0, all_test_scores, k_list=[5 , 10, 20])
         print_metrics(final_results)
     
     
