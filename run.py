@@ -126,56 +126,20 @@ def main():
 
     # 6. 最終測試
     print("\n" + "="*20 + " Final Testing " + "="*20)
-    # model.load_state_dict(torch.load(model_save_path))
-    # model.eval()
-    # test_scores = []
-    # with torch.no_grad():
-    #     for seqs, targets in tqdm(test_loader, desc="Testing"):
-    #         seqs, targets = seqs.to(device), targets.to(device)
-    #         scores, _ = model(seqs, targets, sim_laplacian, com_laplacian)
-    #         test_scores.append(scores)
-        
-    #     all_test_scores = torch.cat(test_scores, dim=0)
-    #     final_results = get_metrics(0, all_test_scores, k_list=[10, 20])
-    #     print_metrics(final_results)
-    
-    # 修改 run.py 的測試區塊，以符合 1:99 負採樣評估
-    print("\n" + "="*20 + " Final Testing (1:99 Negative Sampling) " + "="*20)
     model.load_state_dict(torch.load(model_save_path))
     model.eval()
-
-    test_metrics = {'HR@5': [], 'HR@10': [], 'NDCG@10': []}
-
+    test_scores = []
     with torch.no_grad():
         for seqs, targets in tqdm(test_loader, desc="Testing"):
             seqs, targets = seqs.to(device), targets.to(device)
-            
-            # --- 核心修改：負採樣產生 ---
-            # 為每個 batch 隨機產生 99 個負樣本 (排除掉 targets)
-            neg_samples = []
-            for target in targets:
-                neg = []
-                while len(neg) < 99:
-                    n = np.random.randint(1, num_items)
-                    if n != target.item():
-                        neg.append(n)
-                neg_samples.append(neg)
-            neg_samples = torch.LongTensor(neg_samples).to(device) # [batch, 99]
-            
-            # 組合正負樣本: [batch, 100] (第 0 欄是正樣本)
-            test_items = torch.cat([targets.unsqueeze(1), neg_samples], dim=1)
-            
-            # 只對這 100 個商品計算得分
-            # 注意：模型需要支援只計算特定 items 的得分，若無則需從全量 scores 中 index 出來
-            all_scores, _ = model(seqs, targets, sim_laplacian, com_laplacian)
-            # 從全量得分中提取出這 100 個候選者的分數
-            sampled_scores = torch.gather(all_scores, 1, test_items) 
-            
-            # 使用您修改後的 metrics.py 計算
-            res = get_metrics(num_items, sampled_scores, k_list=[5, 10])
-            test_metrics['HR@5'].append(res['HR@5'])
-            test_metrics['HR@10'].append(res['HR@10'])
-            test_metrics['NDCG@10'].append(res['NDCG@10'])
+            scores, _ = model(seqs, targets, sim_laplacian, com_laplacian)
+            test_scores.append(scores)
+        
+        all_test_scores = torch.cat(test_scores, dim=0)
+        final_results = get_metrics(0, all_test_scores, k_list=[10, 20])
+        print_metrics(final_results)
+    
+    
 
     # 印出平均結果
     print(f"Final HR@5: {np.mean(test_metrics['HR@5']):.4f}")
