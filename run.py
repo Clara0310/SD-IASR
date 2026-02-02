@@ -141,10 +141,7 @@ def main():
     
     
 
-    # 印出平均結果
-    print(f"Final HR@5: {np.mean(test_metrics['HR@5']):.4f}")
-    print(f"Final HR@10: {np.mean(test_metrics['HR@10']):.4f}")
-    print(f"Final NDCG@10: {np.mean(test_metrics['NDCG@10']):.4f}")
+
 
 if __name__ == "__main__":
     main()
