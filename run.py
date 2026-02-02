@@ -79,46 +79,50 @@ def main():
     # 5. 訓練與驗證循環
     early_stop_count = 0
     
-    for epoch in range(start_epoch, args.epochs):
-        model.train()
-        total_loss = 0
-        pbar = tqdm(train_loader, desc=f"Epoch {epoch}")
-        for seqs, targets in pbar:
-            seqs, targets = seqs.to(device), targets.to(device)
+    #暫時註解掉訓練
+    
+    # for epoch in range(start_epoch, args.epochs):
+    #     model.train()
+    #     total_loss = 0
+    #     pbar = tqdm(train_loader, desc=f"Epoch {epoch}")
+    #     for seqs, targets in pbar:
+    #         seqs, targets = seqs.to(device), targets.to(device)
             
-            optimizer.zero_grad()
-            scores, _ = model(seqs, targets, sim_laplacian, com_laplacian)
+    #         optimizer.zero_grad()
+    #         scores, _ = model(seqs, targets, sim_laplacian, com_laplacian)
             
-            loss, _, _ = criterion(scores, model)
-            loss.backward()
-            optimizer.step()
-            total_loss += loss.item()
-            pbar.set_postfix({"loss": f"{loss.item():.4f}"})
+    #         loss, _, _ = criterion(scores, model)
+    #         loss.backward()
+    #         optimizer.step()
+    #         total_loss += loss.item()
+    #         pbar.set_postfix({"loss": f"{loss.item():.4f}"})
 
-        # 驗證階段
-        model.eval()
-        val_hr = []
-        with torch.no_grad():
-            for seqs, targets in val_loader:
-                seqs, targets = seqs.to(device), targets.to(device)
-                scores, _ = model(seqs, targets, sim_laplacian, com_laplacian)
-                metrics = get_metrics(0, scores, k_list=[10])
-                val_hr.append(metrics['HR@10'])
+    #     # 驗證階段
+    #     model.eval()
+    #     val_hr = []
+    #     with torch.no_grad():
+    #         for seqs, targets in val_loader:
+    #             seqs, targets = seqs.to(device), targets.to(device)
+    #             scores, _ = model(seqs, targets, sim_laplacian, com_laplacian)
+    #             metrics = get_metrics(0, scores, k_list=[10])
+    #             val_hr.append(metrics['HR@10'])
         
-        avg_hr = np.mean(val_hr)
-        print(f"Epoch {epoch} | Avg Loss: {total_loss/len(train_loader):.4f} | Val HR@10: {avg_hr:.4f}")
+    #     avg_hr = np.mean(val_hr)
+    #     print(f"Epoch {epoch} | Avg Loss: {total_loss/len(train_loader):.4f} | Val HR@10: {avg_hr:.4f}")
 
-        # Early Stopping 與權重儲存
-        if avg_hr > best_hr:
-            best_hr = avg_hr
-            early_stop_count = 0
-            torch.save(model.state_dict(), model_save_path)
-            print(f"New best model saved to {model_save_path}")
-        else:
-            early_stop_count += 1
-            if early_stop_count >= args.patience:
-                print(f"Early stopping triggered after {args.patience} epochs.")
-                break
+    #     # Early Stopping 與權重儲存
+    #     if avg_hr > best_hr:
+    #         best_hr = avg_hr
+    #         early_stop_count = 0
+    #         torch.save(model.state_dict(), model_save_path)
+    #         print(f"New best model saved to {model_save_path}")
+    #     else:
+    #         early_stop_count += 1
+    #         if early_stop_count >= args.patience:
+    #             print(f"Early stopping triggered after {args.patience} epochs.")
+    #             break
+
+    #暫時註解掉訓練
 
     # 6. 最終測試
     # print("\n" + "="*20 + " Final Testing " + "="*20)
@@ -148,15 +152,20 @@ def main():
             
             # --- 核心修改：負採樣產生 ---
             # 為每個 batch 隨機產生 99 個負樣本 (排除掉 targets)
-            neg_samples = []
+                                
+            # 修改後的負採樣邏輯
+            sampled_indices = []
             for target in targets:
+                # 使用 .flatten()[0] 確保只取得一個元素，不論維度如何
+                pos = target.flatten()[0].item() 
                 neg = []
                 while len(neg) < 99:
                     n = np.random.randint(1, num_items)
-                    if n != target.item():
+                    if n != pos:
                         neg.append(n)
-                neg_samples.append(neg)
-            neg_samples = torch.LongTensor(neg_samples).to(device) # [batch, 99]
+                sampled_indices.append([pos] + neg)    
+            
+            neg_samples = torch.LongTensor(sampled_indices).to(device) # [batch, 99]
             
             # 組合正負樣本: [batch, 100] (第 0 欄是正樣本)
             test_items = torch.cat([targets.unsqueeze(1), neg_samples], dim=1)
