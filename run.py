@@ -81,115 +81,66 @@ def main():
     
     #暫時註解掉訓練
     
-    # for epoch in range(start_epoch, args.epochs):
-    #     model.train()
-    #     total_loss = 0
-    #     pbar = tqdm(train_loader, desc=f"Epoch {epoch}")
-    #     for seqs, targets in pbar:
-    #         seqs, targets = seqs.to(device), targets.to(device)
+    for epoch in range(start_epoch, args.epochs):
+        model.train()
+        total_loss = 0
+        pbar = tqdm(train_loader, desc=f"Epoch {epoch}")
+        for seqs, targets in pbar:
+            seqs, targets = seqs.to(device), targets.to(device)
             
-    #         optimizer.zero_grad()
-    #         scores, _ = model(seqs, targets, sim_laplacian, com_laplacian)
+            optimizer.zero_grad()
+            scores, _ = model(seqs, targets, sim_laplacian, com_laplacian)
             
-    #         loss, _, _ = criterion(scores, model)
-    #         loss.backward()
-    #         optimizer.step()
-    #         total_loss += loss.item()
-    #         pbar.set_postfix({"loss": f"{loss.item():.4f}"})
+            loss, _, _ = criterion(scores, model)
+            loss.backward()
+            optimizer.step()
+            total_loss += loss.item()
+            pbar.set_postfix({"loss": f"{loss.item():.4f}"})
 
-    #     # 驗證階段
-    #     model.eval()
-    #     val_hr = []
-    #     with torch.no_grad():
-    #         for seqs, targets in val_loader:
-    #             seqs, targets = seqs.to(device), targets.to(device)
-    #             scores, _ = model(seqs, targets, sim_laplacian, com_laplacian)
-    #             metrics = get_metrics(0, scores, k_list=[10])
-    #             val_hr.append(metrics['HR@10'])
+        # 驗證階段
+        model.eval()
+        val_hr = []
+        with torch.no_grad():
+            for seqs, targets in val_loader:
+                seqs, targets = seqs.to(device), targets.to(device)
+                scores, _ = model(seqs, targets, sim_laplacian, com_laplacian)
+                metrics = get_metrics(0, scores, k_list=[10])
+                val_hr.append(metrics['HR@10'])
         
-    #     avg_hr = np.mean(val_hr)
-    #     print(f"Epoch {epoch} | Avg Loss: {total_loss/len(train_loader):.4f} | Val HR@10: {avg_hr:.4f}")
+        avg_hr = np.mean(val_hr)
+        print(f"Epoch {epoch} | Avg Loss: {total_loss/len(train_loader):.4f} | Val HR@10: {avg_hr:.4f}")
 
-    #     # Early Stopping 與權重儲存
-    #     if avg_hr > best_hr:
-    #         best_hr = avg_hr
-    #         early_stop_count = 0
-    #         torch.save(model.state_dict(), model_save_path)
-    #         print(f"New best model saved to {model_save_path}")
-    #     else:
-    #         early_stop_count += 1
-    #         if early_stop_count >= args.patience:
-    #             print(f"Early stopping triggered after {args.patience} epochs.")
-    #             break
+        # Early Stopping 與權重儲存
+        if avg_hr > best_hr:
+            best_hr = avg_hr
+            early_stop_count = 0
+            torch.save(model.state_dict(), model_save_path)
+            print(f"New best model saved to {model_save_path}")
+        else:
+            early_stop_count += 1
+            if early_stop_count >= args.patience:
+                print(f"Early stopping triggered after {args.patience} epochs.")
+                break
 
     #暫時註解掉訓練
 
     # 6. 最終測試
-    # print("\n" + "="*20 + " Final Testing " + "="*20)
-    # model.load_state_dict(torch.load(model_save_path))
-    # model.eval()
-    # test_scores = []
-    # with torch.no_grad():
-    #     for seqs, targets in tqdm(test_loader, desc="Testing"):
-    #         seqs, targets = seqs.to(device), targets.to(device)
-    #         scores, _ = model(seqs, targets, sim_laplacian, com_laplacian)
-    #         test_scores.append(scores)
-        
-    #     all_test_scores = torch.cat(test_scores, dim=0)
-    #     final_results = get_metrics(0, all_test_scores, k_list=[10, 20])
-    #     print_metrics(final_results)
-    
-    
-
-    # 修改後的 Final Testing 區塊
-    # 6. 最終測試 (1:99 負採樣修正版)
-    print("\n" + "="*20 + " Final Testing (1:99 Negative Sampling) " + "="*20)
+    print("\n" + "="*20 + " Final Testing " + "="*20)
     model.load_state_dict(torch.load(model_save_path))
     model.eval()
-
-    # 用於儲存所有 Batch 的指標
-    all_res = {'HR@5': [], 'HR@10': [], 'NDCG@10': []}
-
+    test_scores = []
     with torch.no_grad():
         for seqs, targets in tqdm(test_loader, desc="Testing"):
             seqs, targets = seqs.to(device), targets.to(device)
-            
-            # 取得當前 Batch 的全量得分
-            all_scores, _ = model(seqs, targets, sim_laplacian, com_laplacian)
-            
-            # 強制將 targets 轉為一維，確保 .item() 不會報錯
-            targets_flat = targets.view(-1)
-            current_batch_size = targets_flat.size(0)
-            
-            # --- 重點：必須在每個 Batch 開始時「清空」列表 ---
-            batch_sampled_indices = [] 
-            
-            for i in range(current_batch_size):
-                pos = targets_flat[i].item()
-                neg = []
-                while len(neg) < 99:
-                    n = np.random.randint(1, num_items)
-                    if n != pos:
-                        neg.append(n)
-                # 正樣本放在 Index 0，這符合 metrics.py 的設計
-                batch_sampled_indices.append([pos] + neg)
-            
-            # 轉換為 Tensor，此時維度為 [Batch_Size, 100]
-            batch_sampled_indices = torch.LongTensor(batch_sampled_indices).to(device)
-            
-            # 執行 gather。此時 all_scores [B, num_items] 與索引 [B, 100] 的第 0 維度會匹配
-            sampled_scores = torch.gather(all_scores, 1, batch_sampled_indices)
-            
-            # 呼叫 get_metrics 計算當前 Batch 的指標
-            res = get_metrics(num_items, sampled_scores, k_list=[5, 10])
-            
-            all_res['HR@5'].append(res['HR@5'])
-            all_res['HR@10'].append(res['HR@10'])
-            all_res['NDCG@10'].append(res['NDCG@10'])
+            scores, _ = model(seqs, targets, sim_laplacian, com_laplacian)
+            test_scores.append(scores)
+        
+        all_test_scores = torch.cat(test_scores, dim=0)
+        final_results = get_metrics(0, all_test_scores, k_list=[10, 20])
+        print_metrics(final_results)
+    
+    
 
-    # 最終平均結果印出
-    print(f"\nFinal Results (1:99):")
-    print(f"HR@5: {np.mean(all_res['HR@5']):.4f} | HR@10: {np.mean(all_res['HR@10']):.4f} | NDCG@10: {np.mean(all_res['NDCG@10']):.4f}")
     
     
     
