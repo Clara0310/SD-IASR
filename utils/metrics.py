@@ -3,7 +3,7 @@ import numpy as np
 
 def get_metrics(item_num, scores, k_list=[5, 10, 20]):
     """
-    計算 1:99 負採樣下的評估指標
+    計算 1:100 負採樣下的評估指標
     
     Args:
         item_num: 總商品數量 (用於負採樣，但在此模式下主要參考 scores 結構)
@@ -13,7 +13,7 @@ def get_metrics(item_num, scores, k_list=[5, 10, 20]):
     metrics = {}
     batch_size = scores.shape[0]
     
-    # 在 1:99 模式中，通常 scores 的第 0 欄是正樣本
+    # 在 1:100 模式中，通常 scores 的第 0 欄是正樣本
     # 我們計算正樣本在所有 100 個候選商品中的排名
     _, indices = torch.sort(scores, descending=True, dim=-1)
     
