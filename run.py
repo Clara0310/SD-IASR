@@ -125,23 +125,73 @@ def main():
     #暫時註解掉訓練
 
     # 6. 最終測試
-    print("\n" + "="*20 + " Final Testing " + "="*20)
+    # print("\n" + "="*20 + " Final Testing " + "="*20)
+    # model.load_state_dict(torch.load(model_save_path))
+    # model.eval()
+    # test_scores = []
+    # with torch.no_grad():
+    #     for seqs, targets in tqdm(test_loader, desc="Testing"):
+    #         seqs, targets = seqs.to(device), targets.to(device)
+    #         scores, _ = model(seqs, targets, sim_laplacian, com_laplacian)
+    #         test_scores.append(scores)
+        
+    #     all_test_scores = torch.cat(test_scores, dim=0)
+    #     final_results = get_metrics(0, all_test_scores, k_list=[10, 20])
+    #     print_metrics(final_results)
+    
+    
+
+    # 修改後的 Final Testing 區塊
+    # 6. 最終測試 (1:99 負採樣修正版)
+    print("\n" + "="*20 + " Final Testing (1:99 Negative Sampling) " + "="*20)
     model.load_state_dict(torch.load(model_save_path))
     model.eval()
-    test_scores = []
+
+    # 用於儲存所有 Batch 的指標
+    all_res = {'HR@5': [], 'HR@10': [], 'NDCG@10': []}
+
     with torch.no_grad():
         for seqs, targets in tqdm(test_loader, desc="Testing"):
             seqs, targets = seqs.to(device), targets.to(device)
-            scores, _ = model(seqs, targets, sim_laplacian, com_laplacian)
-            test_scores.append(scores)
-        
-        all_test_scores = torch.cat(test_scores, dim=0)
-        final_results = get_metrics(0, all_test_scores, k_list=[10, 20])
-        print_metrics(final_results)
+            
+            # 取得當前 Batch 的全量得分
+            all_scores, _ = model(seqs, targets, sim_laplacian, com_laplacian)
+            
+            # 強制將 targets 轉為一維，確保 .item() 不會報錯
+            targets_flat = targets.view(-1)
+            current_batch_size = targets_flat.size(0)
+            
+            # --- 重點：必須在每個 Batch 開始時「清空」列表 ---
+            batch_sampled_indices = [] 
+            
+            for i in range(current_batch_size):
+                pos = targets_flat[i].item()
+                neg = []
+                while len(neg) < 99:
+                    n = np.random.randint(1, num_items)
+                    if n != pos:
+                        neg.append(n)
+                # 正樣本放在 Index 0，這符合 metrics.py 的設計
+                batch_sampled_indices.append([pos] + neg)
+            
+            # 轉換為 Tensor，此時維度為 [Batch_Size, 100]
+            batch_sampled_indices = torch.LongTensor(batch_sampled_indices).to(device)
+            
+            # 執行 gather。此時 all_scores [B, num_items] 與索引 [B, 100] 的第 0 維度會匹配
+            sampled_scores = torch.gather(all_scores, 1, batch_sampled_indices)
+            
+            # 呼叫 get_metrics 計算當前 Batch 的指標
+            res = get_metrics(num_items, sampled_scores, k_list=[5, 10])
+            
+            all_res['HR@5'].append(res['HR@5'])
+            all_res['HR@10'].append(res['HR@10'])
+            all_res['NDCG@10'].append(res['NDCG@10'])
+
+    # 最終平均結果印出
+    print(f"\nFinal Results (1:99):")
+    print(f"HR@5: {np.mean(all_res['HR@5']):.4f} | HR@10: {np.mean(all_res['HR@10']):.4f} | NDCG@10: {np.mean(all_res['NDCG@10']):.4f}")
     
     
-
-
-
+    
 if __name__ == "__main__":
     main()
