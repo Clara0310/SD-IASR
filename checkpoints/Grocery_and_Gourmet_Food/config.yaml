@@ -5,7 +5,7 @@ epochs: 1000
 gpu: 0
 lambda_3: 0.01
 low_k: 3
-lr: 0.005
+lr: 0.001
 max_seq_len: 50
 mid_k: 3
 patience: 50
