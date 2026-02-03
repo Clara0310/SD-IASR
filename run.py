@@ -1,3 +1,4 @@
+import datetime
 import torch
 import torch.optim as optim
 import argparse
@@ -34,11 +35,19 @@ def main():
     parser.add_argument('--resume', action='store_true', help='是否從上次的最佳權重續跑')
     
     args = parser.parse_args()
+    
+    # 建立時間標記字串
+    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M")
 
     # 1. 建立 Checkpoints 目錄與儲存 Config
-    checkpoint_dir = f"./checkpoints/{args.dataset}"
+    # 修改 checkpoint 目錄或檔名邏輯
+    checkpoint_dir = f"./checkpoints/{args.dataset}/{timestamp}" # 建立一個帶時間的子資料夾
     if not os.path.exists(checkpoint_dir):
         os.makedirs(checkpoint_dir)
+    
+    # checkpoint_dir = f"./checkpoints/{args.dataset}"
+    # if not os.path.exists(checkpoint_dir):
+    #     os.makedirs(checkpoint_dir)
     
     config_path = os.path.join(checkpoint_dir, "config.yaml")
     with open(config_path, 'w') as f:
