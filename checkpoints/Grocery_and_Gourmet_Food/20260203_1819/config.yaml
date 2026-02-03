@@ -1,0 +1,12 @@
+batch_size: 256
+dataset: Grocery_and_Gourmet_Food
+embedding_dim: 64
+epochs: 1000
+gpu: 0
+lambda_3: 0.01
+low_k: 5
+lr: 0.001
+max_seq_len: 50
+mid_k: 5
+patience: 50
+resume: false
