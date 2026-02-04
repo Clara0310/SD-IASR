@@ -13,3 +13,9 @@ data_preprocess/raw_data/
 __pycache__/
 *.pyc
 .DS_Store
+
+#log files
+training_log/
+
+#model checkpoints
+checkpoints/
