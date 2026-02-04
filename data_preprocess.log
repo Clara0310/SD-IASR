@@ -17,7 +17,7 @@ Finished! Total nodes formulated: 68205
 Data saved to: ./data_preprocess/data/Grocery_and_Gourmet_Food.json
 /home/clara_r76121188/thesis/SD-IASR/.venv/lib64/python3.9/site-packages/huggingface_hub/file_download.py:942: FutureWarning: `resume_download` is deprecated and will be removed in version 1.0.0. Downloads always resume when possible. If you want to force a new download, use `force_download=True`.
   warnings.warn(
-Some weights of the model checkpoint at bert-base-uncased were not used when initializing BertModel: ['cls.predictions.transform.LayerNorm.bias', 'cls.seq_relationship.weight', 'cls.predictions.bias', 'cls.predictions.transform.dense.bias', 'cls.predictions.transform.LayerNorm.weight', 'cls.predictions.transform.dense.weight', 'cls.seq_relationship.bias']
+Some weights of the model checkpoint at bert-base-uncased were not used when initializing BertModel: ['cls.predictions.transform.LayerNorm.bias', 'cls.predictions.transform.dense.bias', 'cls.predictions.transform.dense.weight', 'cls.seq_relationship.bias', 'cls.predictions.transform.LayerNorm.weight', 'cls.seq_relationship.weight', 'cls.predictions.bias']
 - This IS expected if you are initializing BertModel from the checkpoint of a model trained on another task or with another architecture (e.g. initializing a BertForSequenceClassification model from a BertForPreTraining model).
 - This IS NOT expected if you are initializing BertModel from the checkpoint of a model that you expect to be exactly identical (initializing a BertForSequenceClassification model from a BertForSequenceClassification model).
 Generating category embeddings with BERT for Grocery_and_Gourmet_Food...
@@ -84,6 +84,6 @@ Total users with valid sequences: 173170
 Sequences with timestamps saved to: ./data_preprocess/tmp/Grocery_and_Gourmet_Food_sequences_with_time.json
 Loading product data from ./data_preprocess/data/Grocery_and_Gourmet_Food.json...
 Loading sequences from ./data_preprocess/tmp/Grocery_and_Gourmet_Food_sequences_with_time.json...
-Constructing dataset pairs (Train neg: 10, Test neg: 100)...
+Constructing dataset pairs (Train neg: 20, Test neg: 100)...
 Success! Processed data saved to: ./data_preprocess/processed/Grocery_and_Gourmet_Food.npz
 Final items: 68205, Sequences: 173170
