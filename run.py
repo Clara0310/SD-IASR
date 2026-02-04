@@ -19,7 +19,8 @@ def main():
     # 基礎設定
     parser.add_argument('--dataset', type=str, default='Grocery_and_Gourmet_Food')
     parser.add_argument('--batch_size', type=int, default=256)
-    parser.add_argument('--embedding_dim', type=int, default=16)
+    # 修改：將 embedding_dim 預設設為 768 以匹配 BERT 輸出維度
+    parser.add_argument('--embedding_dim', type=int, default=768)
     parser.add_argument('--lr', type=float, default=0.005)
     parser.add_argument('--epochs', type=int, default=1000)
     parser.add_argument('--patience', type=int, default=50)
@@ -31,7 +32,7 @@ def main():
     parser.add_argument('--lambda_3', type=float, default=0.01, help='Regularization weight')
     parser.add_argument('--max_seq_len', type=int, default=50)
     
-    # 新增：續跑功能開關
+    # 續跑功能開關
     parser.add_argument('--resume', action='store_true', help='是否從上次的最佳權重續跑')
     
     args = parser.parse_args()
@@ -40,14 +41,9 @@ def main():
     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M")
 
     # 1. 建立 Checkpoints 目錄與儲存 Config
-    # 修改 checkpoint 目錄或檔名邏輯
-    checkpoint_dir = f"./checkpoints/{args.dataset}/{timestamp}" # 建立一個帶時間的子資料夾
+    checkpoint_dir = f"./checkpoints/{args.dataset}/{timestamp}"
     if not os.path.exists(checkpoint_dir):
         os.makedirs(checkpoint_dir)
-    
-    # checkpoint_dir = f"./checkpoints/{args.dataset}"
-    # if not os.path.exists(checkpoint_dir):
-    #     os.makedirs(checkpoint_dir)
     
     config_path = os.path.join(checkpoint_dir, "config.yaml")
     with open(config_path, 'w') as f:
@@ -69,10 +65,31 @@ def main():
     # 4. 初始化模型與 Loss
     model = SDIASR(num_items, args.embedding_dim, args.low_k, args.mid_k, args.max_seq_len).to(device)
     
+    # --- 新增：載入預訓練 BERT 嵌入的邏輯 ---
+    # 從 raw_data 提取商品與類別映射關係
+    item_to_cid = {}
+    for i in range(num_items):
+        # 根據 4_data_formulator.py，features 索引 0 為 cid2, 索引 1 為 cid3
+        item_to_cid[i] = (int(raw_data['features'][i][0]), int(raw_data['features'][i][1]))
+
+    emb_path = f"./data_preprocess/embs/{args.dataset}_embeddings.npz"
+    if os.path.exists(emb_path):
+        print(f"Loading BERT embeddings from {emb_path}...")
+        emb_data = np.load(emb_path)
+        # 呼叫模型內部的載入函數（需搭配修改後的 models/sd_iasr.py）
+        model.load_pretrain_embedding(
+            cid2_emb=emb_data['cid2_emb'], 
+            cid3_emb=emb_data['cid3_emb'], 
+            item_to_cid=item_to_cid
+        )
+    else:
+        print("Warning: BERT embedding file not found. Using random initialization.")
+    # ---------------------------------------
+
     criterion = SDIASRLoss(lambda_reg=args.lambda_3)
     optimizer = optim.Adam(model.parameters(), lr=args.lr)
 
-    # --- 新增：續跑邏輯 (Resume Logic) ---
+    # --- 續跑邏輯 (Resume Logic) ---
     best_hr = 0
     start_epoch = 0
     model_save_path = os.path.join(checkpoint_dir, "best_model.pth")
@@ -82,13 +99,10 @@ def main():
         checkpoint = torch.load(model_save_path)
         model.load_state_dict(checkpoint)
         print("權重載入成功！")
-        # 由於我們沒有額外儲存 epoch 資訊，這裡會從第 0 輪開始重新優化，但權重是基礎好的
     # ----------------------------------
 
     # 5. 訓練與驗證循環
     early_stop_count = 0
-    
-    #暫時註解掉訓練
     
     for epoch in range(start_epoch, args.epochs):
         model.train()
@@ -131,8 +145,6 @@ def main():
                 print(f"Early stopping triggered after {args.patience} epochs.")
                 break
 
-    #暫時註解掉訓練
-
     # 6. 最終測試
     print("\n" + "="*20 + " Final Testing " + "="*20)
     model.load_state_dict(torch.load(model_save_path))
@@ -147,11 +159,6 @@ def main():
         all_test_scores = torch.cat(test_scores, dim=0)
         final_results = get_metrics(0, all_test_scores, k_list=[5 , 10, 20])
         print_metrics(final_results)
-    
-    
-
-    
-    
     
 if __name__ == "__main__":
     main()

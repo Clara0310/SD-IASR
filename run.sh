@@ -4,7 +4,7 @@
 DATASET="Grocery_and_Gourmet_Food"
 
 # 2. 模型基礎超參數
-EMB_DIM=64 #16 -> 64 ，提升嵌入維度以增強表達能力
+EMB_DIM=768 #提升嵌入維度以增強表達能力
 LR=0.001 #0.005 -> 0.001 ，降低學習率以提升訓練穩定性
 BATCH_SIZE=256
 EPOCHS=1000
