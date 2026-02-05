@@ -6,7 +6,7 @@ from models.sequential_encoder import SequentialEncoder
 from models.intent_predictor import IntentPredictor
 
 class SDIASR(nn.Module):
-    def __init__(self, item_num, bert_dim, emb_dim, low_k, mid_k, max_seq_len):
+    def __init__(self, item_num, bert_dim, emb_dim, low_k, mid_k, max_seq_len, num_layers, nhead):
         super(SDIASR, self).__init__()
         self.item_num = item_num
         self.emb_dim = emb_dim
@@ -20,7 +20,12 @@ class SDIASR(nn.Module):
         self.spectral_disentangler = SpectralDisentangler(item_num, emb_dim, low_k, mid_k)
         
         # 3. 序列編碼與意圖捕捉模組 (Dual-Channel Transformer)
-        self.sequential_encoder = SequentialEncoder(emb_dim, max_seq_len)
+        self.sequential_encoder = SequentialEncoder(
+            emb_dim, 
+            max_seq_len, 
+            num_layers=num_layers,
+            nhead=nhead
+        )
         
         # 4. 使用者意圖預測模組 (Intent-Aware Prediction)
         self.predictor = IntentPredictor(emb_dim)

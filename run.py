@@ -20,8 +20,7 @@ def main():
     # 基礎設定
     parser.add_argument('--dataset', type=str, default='Grocery_and_Gourmet_Food')
     parser.add_argument('--batch_size', type=int, default=256)
-    # 先拿掉（修改：將 embedding_dim 預設設為 768 以匹配 BERT 輸出維度）
-    parser.add_argument('--embedding_dim', type=int, default=64) #768
+    parser.add_argument('--embedding_dim', type=int, default=64) 
     # 新增這一個參數接收 bert_dim
     parser.add_argument('--bert_dim', type=int, default=768, help='Dimension of pre-trained BERT embeddings')
     parser.add_argument('--lr', type=float, default=0.001) #0.005
@@ -30,9 +29,20 @@ def main():
     parser.add_argument('--gpu', type=int, default=0)
     
     # SD-IASR 核心超參數
-    parser.add_argument('--low_k', type=int, default=2, help='Prop steps for similarity graph')
-    parser.add_argument('--mid_k', type=int, default=2, help='Prop steps for complementarity graph')
+    parser.add_argument('--low_k', type=int, default=5, help='Prop steps for similarity graph')
+    parser.add_argument('--mid_k', type=int, default=5, help='Prop steps for complementarity graph')
+    
+    # Transformer 相關參數
+    # 新增：控制 Transformer 層數，建議設為 2 或 3
+    parser.add_argument('--num_layers', type=int, default=2, help='Number of Transformer layers')
+    # 新增：接收 Transformer 多頭注意力數量
+    parser.add_argument('--nhead', type=int, default=8, help='Number of attention heads')
+    
+    #loss 權重參數
+    parser.add_argument('--lambda_1', type=float, default=1.0, help='Weight for similarity loss')
+    parser.add_argument('--lambda_2', type=float, default=1.0, help='Weight for complementarity loss')
     parser.add_argument('--lambda_3', type=float, default=0.01, help='Regularization weight')
+    
     parser.add_argument('--max_seq_len', type=int, default=50)
     
     # 續跑功能開關
@@ -72,7 +82,9 @@ def main():
         emb_dim=args.embedding_dim, 
         low_k=args.low_k, 
         mid_k=args.mid_k, 
-        max_seq_len=args.max_seq_len
+        max_seq_len=args.max_seq_len,
+        num_layers=args.num_layers, # 傳入層數
+        nhead=args.nhead           # 傳入頭數
     ).to(device)
     
     # --- 新增：載入預訓練 BERT 嵌入的邏輯 ---
@@ -98,7 +110,14 @@ def main():
 
     # 這裡手動設定 lambda_1 和 lambda_2
     #criterion = SDIASRLoss(lambda_reg=args.lambda_3)
-    criterion = SDIASRLoss(lambda_1=1.0, lambda_2=1.0, lambda_reg=args.lambda_3)
+    # 實驗 A (當前基準): lambda_1=1.0, lambda_2=1.0
+    # 實驗 B (強化結構): lambda_1=2.0, lambda_2=2.0
+    # 實驗 C (重視序列): lambda_1=0.1, lambda_2=0.1
+    criterion = SDIASRLoss(
+        lambda_1=args.lambda_1, 
+        lambda_2=args.lambda_2,
+        lambda_reg=args.lambda_3
+    )
     
     optimizer = optim.Adam(model.parameters(), lr=args.lr)
 

@@ -77,26 +77,31 @@ class IntentCapture(nn.Module):
         return u_last, u_att
 
 class SequentialEncoder(nn.Module):
-    def __init__(self, emb_dim, max_seq_len=50):
+    def __init__(self, emb_dim, max_seq_len, num_layers, nhead):
         super(SequentialEncoder, self).__init__()
+        
+        # 使用 nn.TransformerEncoderLayer 配合 num_layers 增加深度
+        encoder_layer = nn.TransformerEncoderLayer(d_model=emb_dim, nhead=nhead, batch_first=True)
+        
         # 雙通道 Transformer 架構
-        self.sim_transformer = MultiChannelTransformer(emb_dim)
-        self.rel_transformer = MultiChannelTransformer(emb_dim)
+        # 相似性通道與互補性通道皆增加深度
+        self.sim_transformer = nn.TransformerEncoder(encoder_layer, num_layers=num_layers)
+        self.cor_transformer = nn.TransformerEncoder(encoder_layer, num_layers=num_layers)
         
         self.intent_capture = IntentCapture(emb_dim)
 
-    def forward(self, sim_seq_embs, rel_seq_embs, mask=None):
+    def forward(self, sim_seq_embs, cor_seq_embs, mask):
         """
         sim_seq_embs: 相似性特徵序列 [batch, seq_len, emb_dim]
-        rel_seq_embs: 互補性特徵序列 [batch, seq_len, emb_dim]
+        cor_seq_embs: 互補性特徵序列 [batch, seq_len, emb_dim]
         mask: Padding Mask [batch, seq_len]
         """
         # 通道 1: 處理相似性行為路徑
-        sim_out = self.sim_transformer(sim_seq_embs, mask)
+        sim_out = self.sim_transformer(sim_seq_embs, src_key_padding_mask=mask)
         u_sim_last, u_sim_att = self.intent_capture(sim_out, mask)
         
         # 通道 2: 處理互補性行為路徑
-        rel_out = self.rel_transformer(rel_seq_embs, mask)
-        u_rel_last, u_rel_att = self.intent_capture(rel_out, mask)
+        cor_out = self.cor_transformer(cor_seq_embs, src_key_padding_mask=mask)
+        u_cor_last, u_cor_att = self.intent_capture(cor_out, mask)
         
-        return (u_sim_last, u_sim_att), (u_rel_last, u_rel_att)
+        return (u_sim_last, u_sim_att), (u_cor_last, u_cor_att)

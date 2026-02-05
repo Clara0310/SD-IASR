@@ -16,7 +16,14 @@ MAX_SEQ_LEN=50
 # low_k 與 mid_k 控制圖譜濾波器的傳播步數
 LOW_K=5 #2 -> 3 ，增加低頻傳播步數以捕捉更多鄰居資訊
 MID_K=5 #2 -> 3 ，增加中頻傳播步數以捕捉更多鄰居資訊
-# lambda_3 控制模型正則化強度
+
+# Transformer 相關參數
+LAYERS=2      # 增加 Transformer 深度
+NHEAD=8      # 增加注意力頭數以提升模型表達能力
+
+# loss 權重參數
+LAMBDA_1=1.0
+LAMBDA_2=1.0
 LAMBDA_3=0.01
 
 # 4. 執行訓練指令
@@ -32,7 +39,10 @@ python run.py \
     --max_seq_len $MAX_SEQ_LEN \
     --low_k $LOW_K \
     --mid_k $MID_K \
+    --num_layers $LAYERS \
+    --nhead $NHEAD \
+    --lambda_1 $LAMBDA_1 \
+    --lambda_2 $LAMBDA_2 \
     --lambda_3 $LAMBDA_3 \
     --gpu 0 \
     "$@" #彈性接收指令的參數（ex. resume or not）
-#   --resume
