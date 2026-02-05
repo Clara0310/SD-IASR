@@ -1,5 +1,6 @@
 import torch
 import numpy as np
+from sklearn.metrics import ndcg_score
 
 def get_metrics(item_num, scores, k_list=[5, 10, 20]):
     """
@@ -21,6 +22,7 @@ def get_metrics(item_num, scores, k_list=[5, 10, 20]):
     # rank shape: [batch_size], 數值從 0 開始 (0 代表排在第 1 名)
     ranks = (indices == 0).nonzero(as_tuple=True)[1]
     
+    # Top-k 評估指標計算
     for k in k_list:
         # Hit Ratio @ K: 正樣本排名在 K 之前的比例
         hit_at_k = (ranks < k).float().mean().item()
@@ -31,6 +33,19 @@ def get_metrics(item_num, scores, k_list=[5, 10, 20]):
         ndcg_at_k = (ranks < k).float() * (1 / torch.log2(ranks.float() + 2))
         metrics[f'NDCG@{k}'] = ndcg_at_k.mean().item()
         
+    # ------新增與 SR-Rec 一致的全量 NDCG 計算------
+    # 建立標籤矩陣：第 0 欄是正樣本 (1)，其餘是負樣本 (0)
+    # scores 的形狀是 [batch_size, 101]
+    y_true = np.zeros(scores.shape)
+    y_true[:, 0] = 1
+    
+    # 取得模型預測的分數並轉為 numpy
+    y_score = scores.detach().cpu().numpy()
+    
+    # 計算全量 NDCG (不傳入 k 參數，即為 SR-Rec 採用的方法)
+    metrics['NDCG_Full'] = ndcg_score(y_true, y_score)
+    #----------------------------------------------
+    
     return metrics
 
 def print_metrics(metrics):
@@ -42,7 +57,7 @@ def print_metrics(metrics):
     print(" | ".join(output))
 
 # 如果您未來需要進行全量排序，可以保留此函數作為備用
-def get_all_item_metrics(scores, targets, k_list=[10, 20]):
+def get_all_item_metrics(scores, targets, k_list=[5, 10, 20]):
     """全量商品排序評估 (原版邏輯)"""
     metrics = {}
     _, topk_indices = torch.topk(scores, max(k_list), dim=-1)
