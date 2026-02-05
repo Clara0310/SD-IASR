@@ -24,11 +24,12 @@ class IntentPredictor(nn.Module):
         nn.init.xavier_uniform_(self.w_sim)
         nn.init.xavier_uniform_(self.w_rel)
 
-    def forward(self, sim_intents, rel_intents, target_embs):
+    def forward(self, sim_intents, rel_intents, target_sim_embs, target_cor_embs):
         """
         sim_intents: (u_sim_last, u_sim_att)
         rel_intents: (u_rel_last, u_rel_att)
-        target_embs: 候選商品的嵌入 [batch, neg_num + 1, emb_dim]
+        target_sim_embs: 候選商品的相似性嵌入 [batch, neg_num + 1, emb_dim]
+        target_cor_embs: 候選商品的互補性嵌入 [batch, neg_num + 1, emb_dim]
         """
         u_sim_last, u_sim_att = sim_intents
         u_rel_last, u_rel_att = rel_intents
@@ -49,15 +50,15 @@ class IntentPredictor(nn.Module):
         
         # 相似性得分 (Similarity Score)
         # score = u_sim * W * target_item
-        sim_score = torch.matmul(u_sim, self.w_sim) # [batch, emb_dim]
-        sim_score = torch.bmm(target_embs, sim_score.unsqueeze(2)).squeeze(2) # [batch, N]
+        sim_score = torch.matmul(u_sim, self.w_sim) 
+        sim_score = torch.bmm(target_sim_embs, sim_score.unsqueeze(2)).squeeze(2)
 
         # 互補性得分 (Complementarity Score)
         rel_score = torch.matmul(u_rel, self.w_rel)
-        rel_score = torch.bmm(target_embs, rel_score.unsqueeze(2)).squeeze(2) # [batch, N]
-
+        rel_score = torch.bmm(target_cor_embs, rel_score.unsqueeze(2)).squeeze(2)
+        
         # 4. 最終預測值：由 alpha 進行自適應融合
         # Final Score = alpha * Sim_Score + (1 - alpha) * Rel_Score
         final_score = alpha * sim_score + (1 - alpha) * rel_score
 
-        return final_score, alpha
+        return final_score, alpha, sim_score, rel_score

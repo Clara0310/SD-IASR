@@ -1,4 +1,5 @@
 import datetime
+from xml.parsers.expat import model
 import torch
 import torch.optim as optim
 import argparse
@@ -19,9 +20,11 @@ def main():
     # 基礎設定
     parser.add_argument('--dataset', type=str, default='Grocery_and_Gourmet_Food')
     parser.add_argument('--batch_size', type=int, default=256)
-    # 修改：將 embedding_dim 預設設為 768 以匹配 BERT 輸出維度
-    parser.add_argument('--embedding_dim', type=int, default=768)
-    parser.add_argument('--lr', type=float, default=0.005)
+    # 先拿掉（修改：將 embedding_dim 預設設為 768 以匹配 BERT 輸出維度）
+    parser.add_argument('--embedding_dim', type=int, default=64) #768
+    # 新增這一個參數接收 bert_dim
+    parser.add_argument('--bert_dim', type=int, default=768, help='Dimension of pre-trained BERT embeddings')
+    parser.add_argument('--lr', type=float, default=0.001) #0.005
     parser.add_argument('--epochs', type=int, default=1000)
     parser.add_argument('--patience', type=int, default=50)
     parser.add_argument('--gpu', type=int, default=0)
@@ -63,7 +66,14 @@ def main():
     com_laplacian = create_laplacian(raw_data['com_edge_index'], num_items).to(device)
 
     # 4. 初始化模型與 Loss
-    model = SDIASR(num_items, args.embedding_dim, args.low_k, args.mid_k, args.max_seq_len).to(device)
+    model = SDIASR(
+        item_num=num_items, 
+        bert_dim=args.bert_dim,     # 使用新接收的參數
+        emb_dim=args.embedding_dim, 
+        low_k=args.low_k, 
+        mid_k=args.mid_k, 
+        max_seq_len=args.max_seq_len
+    ).to(device)
     
     # --- 新增：載入預訓練 BERT 嵌入的邏輯 ---
     # 從 raw_data 提取商品與類別映射關係
@@ -86,7 +96,10 @@ def main():
         print("Warning: BERT embedding file not found. Using random initialization.")
     # ---------------------------------------
 
-    criterion = SDIASRLoss(lambda_reg=args.lambda_3)
+    # 這裡手動設定 lambda_1 和 lambda_2
+    #criterion = SDIASRLoss(lambda_reg=args.lambda_3)
+    criterion = SDIASRLoss(lambda_1=1.0, lambda_2=1.0, lambda_reg=args.lambda_3)
+    
     optimizer = optim.Adam(model.parameters(), lr=args.lr)
 
     # --- 續跑邏輯 (Resume Logic) ---
@@ -112,9 +125,12 @@ def main():
             seqs, targets = seqs.to(device), targets.to(device)
             
             optimizer.zero_grad()
-            scores, _ = model(seqs, targets, sim_laplacian, com_laplacian)
+            # 取得分支分數
+            scores, alpha, sim_scores, rel_scores = model(seqs, targets, sim_laplacian, com_laplacian)
             
-            loss, _, _ = criterion(scores, model)
+            # 計算聯合損失
+            loss, l_seq, l_sim, l_rel = criterion(scores, sim_scores, rel_scores, model)
+            
             loss.backward()
             optimizer.step()
             total_loss += loss.item()
@@ -126,7 +142,10 @@ def main():
         with torch.no_grad():
             for seqs, targets in val_loader:
                 seqs, targets = seqs.to(device), targets.to(device)
-                scores, _ = model(seqs, targets, sim_laplacian, com_laplacian)
+                
+                # scores, _ = model(seqs, targets, sim_laplacian, com_laplacian)
+                # 修改為接收四個值（後三個在驗證時通常用不到，可以用 _ 忽略）
+                scores, _, _, _ = model(seqs, targets, sim_laplacian, com_laplacian)
                 metrics = get_metrics(0, scores, k_list=[10])
                 val_hr.append(metrics['HR@10'])
         
@@ -153,7 +172,11 @@ def main():
     with torch.no_grad():
         for seqs, targets in tqdm(test_loader, desc="Testing"):
             seqs, targets = seqs.to(device), targets.to(device)
-            scores, _ = model(seqs, targets, sim_laplacian, com_laplacian)
+            
+            #scores, _ = model(seqs, targets, sim_laplacian, com_laplacian)
+            # 同樣改為接收四個值
+            scores, _, _, _ = model(seqs, targets, sim_laplacian, com_laplacian)
+            
             test_scores.append(scores)
         
         all_test_scores = torch.cat(test_scores, dim=0)

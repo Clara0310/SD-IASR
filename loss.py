@@ -7,8 +7,10 @@ class SDIASRLoss(nn.Module):
     SD-IASR 專用損失函數模組
     包含 BPR 推薦損失與權重正則化。
     """
-    def __init__(self, lambda_reg=0.01):
+    def __init__(self, lambda_1=1.0, lambda_2=1.0, lambda_reg=0.01):
         super(SDIASRLoss, self).__init__()
+        self.lambda_1 = lambda_1
+        self.lambda_2 = lambda_2
         self.lambda_reg = lambda_reg
 
     def bpr_loss(self, scores):
@@ -27,23 +29,19 @@ class SDIASRLoss(nn.Module):
         loss = -torch.mean(torch.log(torch.sigmoid(pos_scores - neg_scores) + 1e-10))
         return loss
 
-    def regularization_loss(self, model):
-        """
-        L2 正則化損失
-        用於防止模型過擬合，特別是對解耦後的嵌入進行約束。
-        """
+    def forward(self, scores, sim_scores, rel_scores, model):
+        # 主損失
+        l_seq = self.bpr_loss(scores)
+        
+        # 輔助損失：確保相似通道與互補通道各自有排序能力
+        l_sim = self.bpr_loss(sim_scores)
+        l_rel = self.bpr_loss(rel_scores)
+        
+        # 正則化
         reg_loss = 0
         for name, param in model.named_parameters():
-            if 'weight' in name:
-                reg_loss += torch.norm(param, p=2)
-        return self.lambda_reg * reg_loss
-
-    def forward(self, scores, model):
-        """
-        計算總損失 = BPR Loss + L2 Regularization
-        """
-        main_loss = self.bpr_loss(scores)
-        reg_loss = self.regularization_loss(model)
+            if 'weight' in name: reg_loss += torch.norm(param, p=2)
         
-        total_loss = main_loss + reg_loss
-        return total_loss, main_loss, reg_loss
+        # 最終聯合損失
+        total_loss = l_seq + self.lambda_1 * l_sim + self.lambda_2 * l_rel + self.lambda_reg * reg_loss
+        return total_loss, l_seq, l_sim, l_rel
