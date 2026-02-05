@@ -1,6 +1,0 @@
-# Preprocessing Parameter Settings
-dataset: "Grocery_and_Gourmet_Food"
-train_neg_num: 20
-test_neg_num: 100
-full_ranking: false
-timestamp: "2026-02-04 12:43:33"
