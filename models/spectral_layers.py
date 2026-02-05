@@ -54,9 +54,11 @@ class SpectralConv(nn.Module):
                 # 低通：保留低頻訊號 (平滑鄰居資訊)
                 out = torch.spmm(laplacian, out)
             elif filter_type == 'mid':
-                # 這裡實作 L * (I - L) 或是 L^2
-                lx = torch.spmm(laplacian, out)
-                out = lx - torch.spmm(laplacian, lx) # 二階濾波
+                # 中通：捕捉局部差異與關聯
+                # 實作方式通常為 (I - L) 的變體
+                out = out - torch.spmm(laplacian, out)
+                
+
                 
         return out
 
