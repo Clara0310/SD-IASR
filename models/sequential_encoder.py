@@ -80,6 +80,9 @@ class SequentialEncoder(nn.Module):
     def __init__(self, emb_dim, max_seq_len, num_layers, nhead):
         super(SequentialEncoder, self).__init__()
         
+        # 新增：初始化位置編碼
+        self.pos_encoder = PositionalEncoding(emb_dim, max_len=max_seq_len)
+        
         # 使用 nn.TransformerEncoderLayer 配合 num_layers 增加深度
         encoder_layer = nn.TransformerEncoderLayer(d_model=emb_dim, nhead=nhead, batch_first=True)
         
@@ -96,6 +99,12 @@ class SequentialEncoder(nn.Module):
         cor_seq_embs: 互補性特徵序列 [batch, seq_len, emb_dim]
         mask: Padding Mask [batch, seq_len]
         """
+        # 核心修正：加上位置編碼 (Positional Encoding)
+        sim_seq_embs = self.pos_encoder(sim_seq_embs)
+        cor_seq_embs = self.pos_encoder(cor_seq_embs)
+        
+        # 之後再送入 Transformer
+        
         # 通道 1: 處理相似性行為路徑
         sim_out = self.sim_transformer(sim_seq_embs, src_key_padding_mask=mask)
         u_sim_last, u_sim_att = self.intent_capture(sim_out, mask)

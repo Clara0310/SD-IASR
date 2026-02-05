@@ -21,7 +21,7 @@ def main():
     parser.add_argument('--dataset', type=str, default='Grocery_and_Gourmet_Food')
     parser.add_argument('--batch_size', type=int, default=256)
     parser.add_argument('--embedding_dim', type=int, default=64) 
-    # 新增這一個參數接收 bert_dim
+
     parser.add_argument('--bert_dim', type=int, default=768, help='Dimension of pre-trained BERT embeddings')
     parser.add_argument('--lr', type=float, default=0.001) #0.005
     parser.add_argument('--epochs', type=int, default=1000)
@@ -44,6 +44,11 @@ def main():
     parser.add_argument('--lambda_3', type=float, default=0.01, help='Regularization weight')
     
     parser.add_argument('--max_seq_len', type=int, default=50)
+    
+    #lr_scheduler 相關參數
+    parser.add_argument('--lr_mode', type=str, default='max', help='Scheduler mode (min or max)')
+    parser.add_argument('--lr_factor', type=float, default=0.5, help='Learning rate reduction factor')
+    parser.add_argument('--lr_patience', type=int, default=5, help='Scheduler patience (epochs to wait before reduction)')
     
     # 續跑功能開關
     parser.add_argument('--resume', action='store_true', help='是否從上次的最佳權重續跑')
@@ -110,9 +115,6 @@ def main():
 
     # 這裡手動設定 lambda_1 和 lambda_2
     #criterion = SDIASRLoss(lambda_reg=args.lambda_3)
-    # 實驗 A (當前基準): lambda_1=1.0, lambda_2=1.0
-    # 實驗 B (強化結構): lambda_1=2.0, lambda_2=2.0
-    # 實驗 C (重視序列): lambda_1=0.1, lambda_2=0.1
     criterion = SDIASRLoss(
         lambda_1=args.lambda_1, 
         lambda_2=args.lambda_2,
@@ -121,11 +123,22 @@ def main():
     
     optimizer = optim.Adam(model.parameters(), lr=args.lr)
 
-    # --- 續跑邏輯 (Resume Logic) ---
+    # 加入學習率排程器
+    # 當 Val HR@10 超過 5 個 Epoch 沒有進步時，將學習率縮小為一半 (0.5)
+    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+        optimizer, 
+        mode=args.lr_mode, 
+        factor=args.lr_factor, 
+        patience=args.lr_patience, 
+        verbose=True
+    )
+
+    
     best_hr = 0
     start_epoch = 0
     model_save_path = os.path.join(checkpoint_dir, "best_model.pth")
-
+    
+    # --- 續跑邏輯 (Resume Logic) ---
     if args.resume and os.path.exists(model_save_path):
         print(f"找到現有權重，正在從 {model_save_path} 載入並續跑...")
         checkpoint = torch.load(model_save_path)
@@ -138,7 +151,8 @@ def main():
     
     for epoch in range(start_epoch, args.epochs):
         model.train()
-        total_loss = 0
+        total_loss, total_l_seq, total_l_sim, total_l_rel = 0, 0, 0, 0 # 新增各項累計
+        
         pbar = tqdm(train_loader, desc=f"Epoch {epoch}")
         for seqs, targets in pbar:
             seqs, targets = seqs.to(device), targets.to(device)
@@ -152,8 +166,21 @@ def main():
             
             loss.backward()
             optimizer.step()
+            
+            # 累計損失與各項分數
             total_loss += loss.item()
+            total_l_seq += l_seq.item()
+            total_l_sim += l_sim.item()
+            total_l_rel += l_rel.item()
+            
             pbar.set_postfix({"loss": f"{loss.item():.4f}"})
+
+        # 計算平均值
+        num_batches = len(train_loader)
+        avg_loss = total_loss / num_batches
+        avg_l_seq = total_l_seq / num_batches
+        avg_l_sim = total_l_sim / num_batches
+        avg_l_rel = total_l_rel / num_batches
 
         # 驗證階段
         model.eval()
@@ -169,8 +196,18 @@ def main():
                 val_hr.append(metrics['HR@10'])
         
         avg_hr = np.mean(val_hr)
-        print(f"Epoch {epoch} | Avg Loss: {total_loss/len(train_loader):.4f} | Val HR@10: {avg_hr:.4f}")
-
+        
+        
+        # 取得當前學習率以便觀察
+        current_lr = optimizer.param_groups[0]['lr']
+        
+        # --- 完整印出所有指標 ---
+        print(f"Epoch {epoch} | TotalLoss: {avg_loss:.4f} | L_seq: {avg_l_seq:.4f} | L_sim: {avg_l_sim:.4f} | L_rel: {avg_l_rel:.4f}")
+        print(f"Val HR@10: {avg_hr:.4f} | Current LR: {current_lr}")        
+        
+        # 執行學習率調整：根據目前的 avg_hr 判斷是否需要降速
+        scheduler.step(avg_hr)
+        
         # Early Stopping 與權重儲存
         if avg_hr > best_hr:
             best_hr = avg_hr
