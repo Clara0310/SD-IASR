@@ -46,21 +46,25 @@ class SpectralConv(nn.Module):
         # 初始線性轉換
         x = torch.matmul(x, self.weight)
         
-        # 基於傳播步數 (prop_step) 的多項式譜濾波
-        # 這裡簡化實作論文中的低通與中通邏輯
-        out = x
-        for _ in range(self.prop_step):
-            if filter_type == 'low':
-                # 低通：保留低頻訊號 (平滑鄰居資訊)
+        if filter_type == 'low':
+        # 論文: [1/2 * (I + A_hat)]^k
+        # 簡單實作可保留 A_hat^k，或加入自環
+            out = x
+            for _ in range(self.prop_step):
                 out = torch.spmm(laplacian, out)
-            elif filter_type == 'mid':
-                # 中通：捕捉局部差異與關聯
-                # 實作方式通常為 (I - L) 的變體
-                out = out - torch.spmm(laplacian, out)
-                
-
-                
-        return out
+            return out
+            
+        elif filter_type == 'mid':
+            # 論文: (I - A_hat) * A_hat^k
+            # 先做 k 次低通傳播
+            low_component = x
+            for _ in range(self.prop_step):
+                low_component = torch.spmm(laplacian, low_component)
+            
+            # 再套用一次高通算子 (I - A_hat)
+            # out = A_hat^k * x - A_hat * (A_hat^k * x)
+            out = low_component - torch.spmm(laplacian, low_component)
+            return out
 
 class SpectralDisentangler(nn.Module):
     def __init__(self, item_num, emb_dim, low_k, mid_k):
