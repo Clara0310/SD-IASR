@@ -57,7 +57,12 @@ class IntentCapture(nn.Module):
         實作 Fusion Pooling 策略
         """
         # 1. 取序列最後一個位置作為近期意圖 (Recent Intent: U_last)
-        u_last = seq_output[:, -1, :]
+        #u_last = seq_output[:, -1, :]
+        # 找到序列中真正的最後一個位置
+        # mask 為 True 的地方是 Padding，False 是真實數據
+        # 假設 seq_indices 是 [batch, seq_len]
+        lengths = (~mask).sum(dim=1) - 1 # 每個 batch 的真實長度索引
+        u_last = seq_output[torch.arange(seq_output.size(0)), lengths, :]
 
         # 2. 計算注意力池化作為全局意圖 (Global Intent: U_att)
         attn_weights = self.attention_net(seq_output).squeeze(-1) # [batch, seq_len]
