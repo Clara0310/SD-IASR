@@ -16,6 +16,8 @@ def pair_construct(user_seq_dict, num_items, train_neg_num, test_neg_num, random
 
     for user, seq_with_time in user_seq_dict.items():
         item_seq = [x[0] for x in seq_with_time]
+        time_seq = [x[1] for x in seq_with_time]
+        
         if len(item_seq) < 3:
             continue
         
@@ -28,22 +30,26 @@ def pair_construct(user_seq_dict, num_items, train_neg_num, test_neg_num, random
         # 1. 測試集
         test_pos = item_seq[-1]
         test_history = item_seq[:-1]
+        test_time_history = time_seq[:-1]
         test_neg = random.sample(candidate_negs, actual_test_neg)
-        test_set.append([test_history, test_pos] + test_neg)
+        test_set.append([test_history, test_time_history, test_pos] + test_neg)
 
         # 2. 驗證集
         val_pos = item_seq[-2]
         val_history = item_seq[:-2]
+        val_time_history = time_seq[:-2]
         val_neg = random.sample(candidate_negs, actual_test_neg)
-        val_set.append([val_history, val_pos] + val_neg)
+        val_set.append([val_history, val_time_history, val_pos] + val_neg)
 
         # 3. 訓練集
         for i in range(1, len(item_seq) - 2):
             train_pos = item_seq[i]
             train_history = item_seq[:i]
+            train_time_history = time_seq[:i]
+            
             actual_train_neg = min(len(candidate_negs), train_neg_num)
             train_neg = random.sample(candidate_negs, actual_train_neg)
-            train_set.append([train_history, train_pos] + train_neg)
+            train_set.append([train_history, train_time_history, train_pos] + train_neg)
 
     return np.array(train_set, dtype=object), np.array(val_set, dtype=object), np.array(test_set, dtype=object)
 

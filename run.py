@@ -178,12 +178,12 @@ def main():
         total_loss, total_l_seq, total_l_sim, total_l_rel = 0, 0, 0, 0 # 新增各項累計
         
         pbar = tqdm(train_loader, desc=f"Epoch {epoch}")
-        for seqs, targets in pbar:
-            seqs, targets = seqs.to(device), targets.to(device)
+        for seqs, times, targets in pbar:
+            seqs, times, targets = seqs.to(device), times.to(device), targets.to(device)
             
             optimizer.zero_grad()
             # 取得分支分數
-            scores, alpha, sim_scores, rel_scores = model(seqs, targets, sim_laplacian, com_laplacian)
+            scores, alpha, sim_scores, rel_scores = model(seqs, times, targets, sim_laplacian, com_laplacian)
             
             # 計算聯合損失
             loss, l_seq, l_sim, l_rel = criterion(scores, sim_scores, rel_scores, model)
@@ -210,12 +210,12 @@ def main():
         model.eval()
         val_hr = []
         with torch.no_grad():
-            for seqs, targets in val_loader:
-                seqs, targets = seqs.to(device), targets.to(device)
+            for seqs, times, targets in val_loader:
+                seqs, times, targets = seqs.to(device), times.to(device), targets.to(device)
                 
                 # scores, _ = model(seqs, targets, sim_laplacian, com_laplacian)
                 # 修改為接收四個值（後三個在驗證時通常用不到，可以用 _ 忽略）
-                scores, _, _, _ = model(seqs, targets, sim_laplacian, com_laplacian)
+                scores, _, _, _ = model(seqs, times, targets, sim_laplacian, com_laplacian)
                 metrics = get_metrics(0, scores, k_list=[10])
                 val_hr.append(metrics['HR@10'])
         
@@ -250,12 +250,12 @@ def main():
     model.eval()
     test_scores = []
     with torch.no_grad():
-        for seqs, targets in tqdm(test_loader, desc="Testing"):
-            seqs, targets = seqs.to(device), targets.to(device)
+        for seqs, times, targets in tqdm(test_loader, desc="Testing"):
+            seqs, times, targets = seqs.to(device), times.to(device), targets.to(device)
             
             #scores, _ = model(seqs, targets, sim_laplacian, com_laplacian)
             # 同樣改為接收四個值
-            scores, _, _, _ = model(seqs, targets, sim_laplacian, com_laplacian)
+            scores, _, _, _ = model(seqs, times, targets, sim_laplacian, com_laplacian)
             
             test_scores.append(scores)
         

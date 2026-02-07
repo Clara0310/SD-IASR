@@ -82,11 +82,14 @@ class IntentCapture(nn.Module):
         return u_last, u_att
 
 class SequentialEncoder(nn.Module):
-    def __init__(self, emb_dim, max_seq_len, num_layers, nhead,dropout=0.1):
+    def __init__(self, emb_dim, max_seq_len, num_layers, nhead,dropout=0.1,time_span=256):
         super(SequentialEncoder, self).__init__()
         
         # 新增：初始化位置編碼
         self.pos_encoder = PositionalEncoding(emb_dim, max_len=max_seq_len)
+        
+        # [新增] 時間間隔 Embedding
+        self.time_embedding = nn.Embedding(time_span, emb_dim)
         
         # 使用 nn.TransformerEncoderLayer 配合 num_layers 增加深度
         encoder_layer = nn.TransformerEncoderLayer(
@@ -105,7 +108,7 @@ class SequentialEncoder(nn.Module):
         # 定義 Dropout 層 (用於 Positional Encoding 後)
         self.dropout = nn.Dropout(dropout)
 
-    def forward(self, sim_seq_embs, cor_seq_embs, mask):
+    def forward(self, sim_seq_embs, cor_seq_embs, time_seq, mask):
         """
         sim_seq_embs: 相似性特徵序列 [batch, seq_len, emb_dim]
         cor_seq_embs: 互補性特徵序列 [batch, seq_len, emb_dim]
@@ -114,6 +117,13 @@ class SequentialEncoder(nn.Module):
         # 核心修正：加上位置編碼 (Positional Encoding)
         sim_seq_embs = self.pos_encoder(sim_seq_embs)
         cor_seq_embs = self.pos_encoder(cor_seq_embs)
+        
+        # [新增] 加上時間編碼 (Time Interval)
+        # 時間特徵是共用的，同時加到 Sim 和 Cor 通道
+        t_emb = self.time_embedding(time_seq) # [batch, seq_len, emb_dim]
+        
+        sim_seq_embs = sim_seq_embs + t_emb
+        cor_seq_embs = cor_seq_embs + t_emb
         
         # 新增：位置編碼後加 Dropout
         sim_seq_embs = self.dropout(sim_seq_embs)

@@ -62,7 +62,7 @@ class SDIASR(nn.Module):
         self.predictor = IntentPredictor(emb_dim, dropout=dropout)
         self.dropout = nn.Dropout(dropout) # <--- [新增] 定義一個全域 dropout 層
 
-    def forward(self, seq_indices, target_indices, sim_laplacian, com_laplacian):
+    def forward(self, seq_indices, time_indices, target_indices, sim_laplacian, com_laplacian):
         """
         seq_indices: 使用者歷史行為序列 [batch, seq_len]
         target_indices: 正樣本與負樣本商品 ID [batch, 1 + neg_num]
@@ -90,7 +90,7 @@ class SDIASR(nn.Module):
         mask = (seq_indices == 0)
 
         # E. 雙通道序列編碼：捕捉近期與全局意圖
-        sim_intents, cor_intents = self.sequential_encoder(seq_sim_embs, seq_cor_embs, mask)
+        sim_intents, cor_intents = self.sequential_encoder(seq_sim_embs, seq_cor_embs, time_indices, mask)
 
         # F. 取得候選商品的特徵 (同樣經過譜解耦)
         target_sim_embs = F.embedding(target_indices, x_sim) # [batch, 1+neg, emb_dim]
