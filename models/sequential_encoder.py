@@ -82,21 +82,28 @@ class IntentCapture(nn.Module):
         return u_last, u_att
 
 class SequentialEncoder(nn.Module):
-    def __init__(self, emb_dim, max_seq_len, num_layers, nhead):
+    def __init__(self, emb_dim, max_seq_len, num_layers, nhead,dropout=0.1):
         super(SequentialEncoder, self).__init__()
         
         # 新增：初始化位置編碼
         self.pos_encoder = PositionalEncoding(emb_dim, max_len=max_seq_len)
         
         # 使用 nn.TransformerEncoderLayer 配合 num_layers 增加深度
-        encoder_layer = nn.TransformerEncoderLayer(d_model=emb_dim, nhead=nhead, batch_first=True)
-        
+        encoder_layer = nn.TransformerEncoderLayer(
+                    d_model=emb_dim, 
+                    nhead=nhead, 
+                    batch_first=True,
+                    dropout=dropout # <--- 這裡！
+                )        
         # 雙通道 Transformer 架構
         # 相似性通道與互補性通道皆增加深度
         self.sim_transformer = nn.TransformerEncoder(encoder_layer, num_layers=num_layers)
         self.cor_transformer = nn.TransformerEncoder(encoder_layer, num_layers=num_layers)
         
         self.intent_capture = IntentCapture(emb_dim)
+        
+        # 定義 Dropout 層 (用於 Positional Encoding 後)
+        self.dropout = nn.Dropout(dropout)
 
     def forward(self, sim_seq_embs, cor_seq_embs, mask):
         """
@@ -107,6 +114,10 @@ class SequentialEncoder(nn.Module):
         # 核心修正：加上位置編碼 (Positional Encoding)
         sim_seq_embs = self.pos_encoder(sim_seq_embs)
         cor_seq_embs = self.pos_encoder(cor_seq_embs)
+        
+        # 新增：位置編碼後加 Dropout
+        sim_seq_embs = self.dropout(sim_seq_embs)
+        cor_seq_embs = self.dropout(cor_seq_embs)
         
         # 之後再送入 Transformer
         
