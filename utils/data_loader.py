@@ -56,7 +56,7 @@ def get_loader(dataset_path, batch_size, max_len):
     )
     test_loader = DataLoader(
         SequentialDataset(data['test_set'], max_len), 
-        batch_size=batch_size, 
+        batch_size=1, 
         shuffle=False
     )
     
