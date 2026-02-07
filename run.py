@@ -4,6 +4,7 @@ import torch
 import torch.optim as optim
 import argparse
 import os
+from sklearn.preprocessing import KBinsDiscretizer
 import numpy as np
 import yaml
 from tqdm import tqdm
@@ -77,6 +78,24 @@ def main():
     train_loader, val_loader, test_loader, raw_data = get_loader(data_path, args.batch_size, args.max_seq_len)
     
     num_items = raw_data['features'].shape[0]
+    
+    # === 新增：價格特徵處理 (參考 SR-Rec) ===
+    # 原始 features 結構: [cid2, cid3, price]
+    raw_features = raw_data['features']
+    prices = raw_features[:, 2].reshape(-1, 1) # 取出價格欄位
+    
+    # 使用 KBinsDiscretizer 將價格分為 20 個區間
+    # encode='ordinal' 會輸出 0, 1, 2... 的整數 ID
+    est = KBinsDiscretizer(n_bins=20, encode='ordinal', strategy='uniform')
+    price_ids = est.fit_transform(prices).astype(int).flatten()
+    
+    # 建立 item_to_price 字典，稍後傳給模型
+    item_to_price = {i: price_ids[i] for i in range(num_items)}
+    print("Price discretization finished.")
+    # ======================================
+    
+    
+    
     sim_laplacian = create_laplacian(raw_data['sim_edge_index'], num_items).to(device)
     com_laplacian = create_laplacian(raw_data['com_edge_index'], num_items).to(device)
 
@@ -107,7 +126,8 @@ def main():
         model.load_pretrain_embedding(
             cid2_emb=emb_data['cid2_emb'], 
             cid3_emb=emb_data['cid3_emb'], 
-            item_to_cid=item_to_cid
+            item_to_cid=item_to_cid,
+            item_to_price=item_to_price
         )
     else:
         print("Warning: BERT embedding file not found. Using random initialization.")
