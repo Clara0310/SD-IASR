@@ -46,12 +46,12 @@ def get_loader(dataset_path, batch_size, max_len):
     # 建立 PyTorch DataLoader
     train_loader = DataLoader(
         SequentialDataset(data['train_set'], max_len), 
-        batch_size=batch_size, 
+        batch_size=1, 
         shuffle=True
     )
     val_loader = DataLoader(
         SequentialDataset(data['val_set'], max_len), 
-        batch_size=batch_size, 
+        batch_size=1, 
         shuffle=False
     )
     test_loader = DataLoader(
