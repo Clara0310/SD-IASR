@@ -11,15 +11,39 @@ class SDIASR(nn.Module):
         self.item_num = item_num
         self.emb_dim = emb_dim
         
+        
+        # === 1. 修改：多特徵融合初始嵌入層 (Multi-View Feature Fusion) ===
+        # A. 定義價格 Embedding
+        self.price_emb_dim = 64  # 設定價格向量維度
+        self.price_embedding = nn.Embedding(20, self.price_emb_dim) # 20 bins
+        
+        # B. 定義融合後的輸入總維度
+        # 輸入 = BERT(CID2) + BERT(CID3) + Price
+        # 例如: 768 + 768 + 64 = 1600
+        self.fusion_input_dim = bert_dim + bert_dim + self.price_emb_dim
+        
+        # C. 特徵融合投影層 (MLP)
+        # 負責將拼接後的巨大向量 (1600維) 壓縮回 emb_dim (如 128維)
+        self.feature_fusion = nn.Sequential(
+            nn.Linear(self.fusion_input_dim, emb_dim),
+            nn.ReLU(),
+            nn.Linear(emb_dim, emb_dim)
+        )
+        
+        # D. 最終的商品嵌入層
+        # 注意：這裡存放的是「融合並降維後」的結果，所以維度直接是 emb_dim
+        self.item_embedding = nn.Embedding(item_num, emb_dim)
+        
+        # (原本的 self.proj 已被 feature_fusion 取代，故移除)
         # 1. 商品初始嵌入層 (Item Embedding)
         # 修改：增加投影層，將 768 維 BERT 降維至 emb_dim (如 64)
-        self.item_embedding = nn.Embedding(item_num, bert_dim)
-        self.proj = nn.Linear(bert_dim, emb_dim)
+        #self.item_embedding = nn.Embedding(item_num, bert_dim)
+        #self.proj = nn.Linear(bert_dim, emb_dim)
         
-        # 2. 譜關係解耦模組 (Spectral Disentangling Module)
+        # === 2. 譜關係解耦模組 === (Spectral Disentangling Module)
         self.spectral_disentangler = SpectralDisentangler(item_num, emb_dim, low_k, mid_k)
         
-        # 3. 序列編碼與意圖捕捉模組 (Dual-Channel Transformer)
+        # === 3. 序列編碼與意圖捕捉模組 === (Dual-Channel Transformer)
         self.sequential_encoder = SequentialEncoder(
             emb_dim, 
             max_seq_len, 
@@ -27,7 +51,7 @@ class SDIASR(nn.Module):
             nhead=nhead
         )
         
-        # 4. 使用者意圖預測模組 (Intent-Aware Prediction)
+        # === 4. 使用者意圖預測模組 === (Intent-Aware Prediction)
         self.predictor = IntentPredictor(emb_dim)
 
     def forward(self, seq_indices, target_indices, sim_laplacian, com_laplacian):
@@ -38,7 +62,10 @@ class SDIASR(nn.Module):
         """
         # A. 取得所有商品的基礎嵌入
         all_item_indices = torch.arange(self.item_num).to(seq_indices.device)
-        initial_embs = self.proj(self.item_embedding(all_item_indices)) # [num_items, emb_dim]
+        #initial_embs = self.proj(self.item_embedding(all_item_indices)) # [num_items, emb_dim]
+        # 修改：因為 item_embedding 已經在 load_pretrain_embedding 時被初始化為 emb_dim
+        # 所以這裡不需要再做 self.proj，直接取用即可
+        initial_embs = self.item_embedding(all_item_indices) # [num_items, emb_dim]
 
         # B. 執行譜解耦：生成相似性特徵 X_sim 與 互補性特徵 X_cor
         x_sim, x_cor = self.spectral_disentangler(initial_embs, sim_laplacian, com_laplacian)
@@ -66,15 +93,17 @@ class SDIASR(nn.Module):
 
         return scores, alpha, sim_scores, rel_scores
     
-    def load_pretrain_embedding(self, cid2_emb, cid3_emb, item_to_cid):
+    def load_pretrain_embedding(self, cid2_emb, cid3_emb, item_to_cid, item_to_price):
         # self.item_embedding.weight.data.copy_(torch.from_numpy(embedding_matrix))
         # # 允許在訓練過程中微調嵌入權重
         # self.item_embedding.weight.requires_grad = True
         
         """
-        將 BERT 分類嵌入映射到商品嵌入
-        cid2_emb, cid3_emb: [num_categories, 768] 的 numpy 陣列
-        item_to_cid: 字典或陣列，格式為 {item_num_id: (cid2_id, cid3_id)}
+        將 BERT 分類嵌入與價格特徵融合，並初始化商品嵌入
+        Args:
+            cid2_emb, cid3_emb: [num_categories, 768] 的 numpy 陣列
+            item_to_cid: {item_num_id: (cid2_id, cid3_id)}
+            item_to_price: {item_num_id: price_bin_id} (0~19)
         """
         import numpy as np
         
@@ -82,33 +111,52 @@ class SDIASR(nn.Module):
         # 注意：這會改變 self.item_embedding 的維度，run.py 的 embedding_dim 需設為 768
         #pretrained_weight = np.zeros((self.item_num, self.emb_dim))
         # 修正：這裡必須固定為 768，因為這是接收原始 BERT 向量的地方
-        pretrained_weight = np.zeros((self.item_num, 768))
+        print("Initializing item embeddings with Multi-View Features (CID2 + CID3 + Price)...")
         
-        for i in range(self.item_num):
-            if i in item_to_cid:
-                c2_id, c3_id = item_to_cid[i]
-                # 融合第 2 級與第 3 級類別的 BERT 向量 (768維)
-                item_vec = (cid2_emb[c2_id] + cid3_emb[c3_id]) / 2.0
-                pretrained_weight[i] = item_vec
-            else:
-                # 若無類別資訊則保持隨機
-                pretrained_weight[i] = np.random.normal(size=(768,))
-
-        # 確保 item_embedding 的權重資料能對應 768 維度
-        self.item_embedding.weight.data.copy_(torch.from_numpy(pretrained_weight).float())
-        self.item_embedding.weight.requires_grad = True
-        print(f"Successfully mapped category BERT embeddings to {self.item_num} items.")
+        fusion_weights = []
         
-        # for i in range(self.item_num):
-        #     if i in item_to_cid:
-        #         c2_id, c3_id = item_to_cid[i]
-        #         # 融合第 2 級與第 3 級類別的 BERT 向量作為商品初始表徵
-        #         item_vec = (cid2_emb[c2_id] + cid3_emb[c3_id]) / 2.0
-        #         pretrained_weight[i] = item_vec
-        #     else:
-        #         # 若無類別資訊則保持隨機（或全 0）
-        #         pretrained_weight[i] = np.random.normal(size=(self.emb_dim,))
+        # [新增] 取得模型當前所在的裝置 (CPU 或 CUDA)
+        device = self.price_embedding.weight.device
+        
+        # 使用 torch.no_grad 避免在初始化階段計算梯度
+        with torch.no_grad():
+            for i in range(self.item_num):
+                # 1. 取得 BERT 類別特徵 (768維)
+                if i in item_to_cid:
+                    c2_id, c3_id = item_to_cid[i]
+                    vec_c2 = torch.from_numpy(cid2_emb[c2_id]).float().to(device) # [修正] 移至 device
+                    vec_c3 = torch.from_numpy(cid3_emb[c3_id]).float().to(device) # [修正] 移至 device
+                else:
+                    vec_c2 = torch.randn(768).to(device) # [修正] 移至 device
+                    vec_c3 = torch.randn(768).to(device) # [修正] 移至 device
+                
+                # 2. 取得價格特徵 (64維)
+                if i in item_to_price:
+                    p_id = item_to_price[i]
+                    # [修正] 建立 Tensor 後立刻移至 device
+                    p_tensor = torch.tensor(p_id).to(device)
+                    vec_price = self.price_embedding(p_tensor)
+                else:
+                    # 若無價格資訊，使用第 0 號 bin 或隨機
+                    p_tensor = torch.tensor(0).to(device)
+                    vec_price = self.price_embedding(p_tensor)
+                
+                # 3. 特徵拼接 (Concatenate)
+                # 形狀: [768] + [768] + [64] -> [1600]
+                concat_vec = torch.cat([vec_c2, vec_c3, vec_price], dim=0)
+                fusion_weights.append(concat_vec.unsqueeze(0))
 
-        # self.item_embedding.weight.data.copy_(torch.from_numpy(pretrained_weight).float())
-        # self.item_embedding.weight.requires_grad = True
-        # print(f"Successfully mapped category BERT embeddings to {self.item_num} items.")
+            # 將列表轉為 Tensor: [item_num, 1600]
+            all_features = torch.cat(fusion_weights, dim=0)
+            
+            # 4. 通過融合層降維: [item_num, 1600] -> [item_num, emb_dim]
+            # 這一步相當於 SR-Rec 中的 projection
+            final_embs = self.feature_fusion(all_features)
+            
+            # 5. 將結果複製到 item_embedding
+            self.item_embedding.weight.data.copy_(final_embs)
+            
+            # 確保之後訓練時可以更新
+            self.item_embedding.weight.requires_grad = True
+            
+        print(f"Successfully fused features and mapped to {self.item_num} items with dim {self.emb_dim}.")
