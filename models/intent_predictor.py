@@ -5,14 +5,18 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 class IntentPredictor(nn.Module):
-    def __init__(self, emb_dim):
+    def __init__(self, emb_dim,dropout=0.0):
         super(IntentPredictor, self).__init__()
         self.emb_dim = emb_dim
+        
+        # 定義 Dropout 層
+        self.dropout = nn.Dropout(dropout)
 
         # 動態權重分配網路 (用於計算 alpha)
         self.alpha_net = nn.Sequential(
             nn.Linear(emb_dim * 4, emb_dim),
             nn.ReLU(),
+            nn.Dropout(dropout),
             nn.Linear(emb_dim, 1),
             nn.Sigmoid()
         )
@@ -36,8 +40,8 @@ class IntentPredictor(nn.Module):
 
         # 1. 意圖融合：結合近期與全局資訊
         # 這裡採用加和或拼接後的線性轉換，確保與候選商品維度一致
-        u_sim = u_sim_last + u_sim_att
-        u_rel = u_rel_last + u_rel_att
+        u_sim = self.dropout(u_sim_last + u_sim_att)
+        u_rel = self.dropout(u_rel_last + u_rel_att)
 
         # 2. 計算動態權重 alpha
         # 融合四個意圖特徵來判斷當前使用者受哪種關係影響較大

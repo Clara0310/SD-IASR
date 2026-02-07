@@ -7,11 +7,12 @@ import numpy as np
 import scipy.sparse as sp
 
 class SpectralConv(nn.Module):
-    def __init__(self, c_in, c_out, prop_step):
+    def __init__(self, c_in, c_out, prop_step,dropout=0.0):
         super(SpectralConv, self).__init__()
         self.c_in = c_in
         self.c_out = c_out
         self.prop_step = prop_step
+        self.dropout = dropout  # 儲存 dropout 率
         # 定義譜卷積的權重矩陣
         self.weight = nn.Parameter(torch.FloatTensor(c_in, c_out))
         nn.init.xavier_uniform_(self.weight)
@@ -46,6 +47,9 @@ class SpectralConv(nn.Module):
         # 初始線性轉換
         x = torch.matmul(x, self.weight)
         
+        # training=self.training 確保只有在訓練時會隨機丟棄，測試時會保留
+        x = F.dropout(x, p=self.dropout, training=self.training)
+        
         if filter_type == 'low':
         # 論文: [1/2 * (I + A_hat)]^k
         # 簡單實作可保留 A_hat^k，或加入自環
@@ -67,10 +71,10 @@ class SpectralConv(nn.Module):
             return out
 
 class SpectralDisentangler(nn.Module):
-    def __init__(self, item_num, emb_dim, low_k, mid_k):
+    def __init__(self, item_num, emb_dim, low_k, mid_k,dropout=0.0):
         super(SpectralDisentangler, self).__init__()
-        self.low_conv = SpectralConv(emb_dim, emb_dim, low_k)
-        self.mid_conv = SpectralConv(emb_dim, emb_dim, mid_k)
+        self.low_conv = SpectralConv(emb_dim, emb_dim, low_k, dropout=dropout)
+        self.mid_conv = SpectralConv(emb_dim, emb_dim, mid_k, dropout=dropout)
         
     def forward(self, item_embs, sim_laplacian, com_laplacian):
         """

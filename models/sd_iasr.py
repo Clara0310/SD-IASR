@@ -6,7 +6,7 @@ from models.sequential_encoder import SequentialEncoder
 from models.intent_predictor import IntentPredictor
 
 class SDIASR(nn.Module):
-    def __init__(self, item_num, bert_dim, emb_dim, low_k, mid_k, max_seq_len, num_layers, nhead):
+    def __init__(self, item_num, bert_dim, emb_dim, low_k, mid_k, max_seq_len, num_layers, nhead,dropout=0.1):
         super(SDIASR, self).__init__()
         self.item_num = item_num
         self.emb_dim = emb_dim
@@ -41,18 +41,26 @@ class SDIASR(nn.Module):
         #self.proj = nn.Linear(bert_dim, emb_dim)
         
         # === 2. 譜關係解耦模組 === (Spectral Disentangling Module)
-        self.spectral_disentangler = SpectralDisentangler(item_num, emb_dim, low_k, mid_k)
+        self.spectral_disentangler = SpectralDisentangler(
+                    item_num, 
+                    emb_dim, 
+                    low_k, 
+                    mid_k, 
+                    dropout=dropout  # <--- 加上這行
+                )        
         
         # === 3. 序列編碼與意圖捕捉模組 === (Dual-Channel Transformer)
         self.sequential_encoder = SequentialEncoder(
             emb_dim, 
             max_seq_len, 
             num_layers=num_layers,
-            nhead=nhead
+            nhead=nhead,
+            dropout=dropout
         )
         
         # === 4. 使用者意圖預測模組 === (Intent-Aware Prediction)
-        self.predictor = IntentPredictor(emb_dim)
+        self.predictor = IntentPredictor(emb_dim, dropout=dropout)
+        self.dropout = nn.Dropout(dropout) # <--- [新增] 定義一個全域 dropout 層
 
     def forward(self, seq_indices, target_indices, sim_laplacian, com_laplacian):
         """
@@ -66,6 +74,9 @@ class SDIASR(nn.Module):
         # 修改：因為 item_embedding 已經在 load_pretrain_embedding 時被初始化為 emb_dim
         # 所以這裡不需要再做 self.proj，直接取用即可
         initial_embs = self.item_embedding(all_item_indices) # [num_items, emb_dim]
+        
+        # [新增] 在初始 Embedding 後加 Dropout
+        initial_embs = self.dropout(initial_embs)
 
         # B. 執行譜解耦：生成相似性特徵 X_sim 與 互補性特徵 X_cor
         x_sim, x_cor = self.spectral_disentangler(initial_embs, sim_laplacian, com_laplacian)

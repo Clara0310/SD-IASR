@@ -44,6 +44,9 @@ def main():
     parser.add_argument('--lambda_2', type=float, default=1.0, help='Weight for complementarity loss')
     parser.add_argument('--lambda_3', type=float, default=0.01, help='Regularization weight')
     
+    # 新增Dropout 參數
+    parser.add_argument('--dropout', type=float, default=0.1, help='Dropout rate')
+    
     parser.add_argument('--max_seq_len', type=int, default=50)
     
     #lr_scheduler 相關參數
@@ -108,7 +111,8 @@ def main():
         mid_k=args.mid_k, 
         max_seq_len=args.max_seq_len,
         num_layers=args.num_layers, # 傳入層數
-        nhead=args.nhead           # 傳入頭數
+        nhead=args.nhead ,          # 傳入頭數
+        dropout=args.dropout        # 傳入 dropout
     ).to(device)
     
     # --- 新增：載入預訓練 BERT 嵌入的邏輯 ---

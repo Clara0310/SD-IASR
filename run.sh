@@ -14,8 +14,8 @@ MAX_SEQ_LEN=50
 
 # 3. SD-IASR 核心解耦參數
 # low_k 與 mid_k 控制圖譜濾波器的傳播步數
-LOW_K=5 #2 -> 3 ，增加低頻傳播步數以捕捉更多鄰居資訊
-MID_K=5 #2 -> 3 ，增加中頻傳播步數以捕捉更多鄰居資訊
+LOW_K=2 #2  ，增加低頻傳播步數以捕捉更多鄰居資訊
+MID_K=2 #2  ，增加中頻傳播步數以捕捉更多鄰居資訊
 
 # Transformer 相關參數
 LAYERS=2      # 增加 Transformer 深度
@@ -27,9 +27,12 @@ LR_FACTOR=0.1     # 觸發時將學習率乘以 0.1
 LR_PATIENCE=15     # 這是排程器的耐心值（例如 15 次沒進步就降速）
 
 # loss 權重參數
-LAMBDA_1=0.01
-LAMBDA_2=0.01
+LAMBDA_1=0.1
+LAMBDA_2=0.05
 LAMBDA_3=0.00001
+
+# 新增Dropout 參數
+DROPOUT=0.3  # 給予 30% 的 Dropout，這對抗過擬合非常有效！
 
 # 4. 執行訓練指令
 # 移除了 ALPHA，並加入了 --resume 續跑與 --max_seq_len 參數
@@ -52,5 +55,6 @@ python run.py \
     --lambda_1 $LAMBDA_1 \
     --lambda_2 $LAMBDA_2 \
     --lambda_3 $LAMBDA_3 \
+    --dropout $DROPOUT \
     --gpu 0 \
     "$@" #彈性接收指令的參數（ex. resume or not）
