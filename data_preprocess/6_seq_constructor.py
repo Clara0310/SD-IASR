@@ -55,7 +55,7 @@ def main():
     # 3. 排序並生成序列
     final_sequences = {}
     # 【回應你的點 3】放寬長度限制，你可以根據實驗需求調整
-    min_seq_len = 3   
+    min_seq_len = 5 # 比較符合學術界的 5-core 習慣，也能減少雜訊   
     max_seq_len = 50  # 增加長度以保留更多長期行為
 
     print("Sorting sequences by time and saving timestamps...")
