@@ -1,7 +1,20 @@
 #!/bin/bash
 
-# 1. 定義資料集名稱
-DATASET="Grocery_and_Gourmet_Food"
+# ====================================================
+# 1. 定義資料集名稱 (支援命令列輸入)
+# ====================================================
+# 預設資料集名稱
+DEFAULT_DATASET="Grocery_and_Gourmet_Food"
+
+# 邏輯判斷：如果第一個參數存在且不是旗標(以 - 開頭)，則將其視為資料集名稱
+if [[ -n "$1" && "$1" != -* ]]; then
+    DATASET="$1"
+    shift # 關鍵：移除第一個參數，避免把它重複傳給 python 導致報錯
+else
+    DATASET="$DEFAULT_DATASET"
+fi
+
+echo "Running on dataset: $DATASET"
 
 # 2. 模型基礎超參數
 EMB_DIM=128 #提升嵌入維度以增強表達能力
