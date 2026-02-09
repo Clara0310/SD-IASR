@@ -57,20 +57,31 @@ def main():
     # 續跑功能開關
     parser.add_argument('--resume', action='store_true', help='是否從上次的最佳權重續跑')
     
+    # [新增] 測試模式專用參數
+    parser.add_argument('--test_only', action='store_true', help='只執行測試，跳過訓練')
+    parser.add_argument('--checkpoint_path', type=str, default=None, help='測試模式下，指定要載入的模型路徑 (.pth)')
+    
     args = parser.parse_args()
     
-    # 建立時間標記字串
-    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M")
-
-    # 1. 建立 Checkpoints 目錄與儲存 Config
-    checkpoint_dir = f"./checkpoints/{args.dataset}/{timestamp}"
-    if not os.path.exists(checkpoint_dir):
-        os.makedirs(checkpoint_dir)
-    
-    config_path = os.path.join(checkpoint_dir, "config.yaml")
-    with open(config_path, 'w') as f:
-        yaml.dump(vars(args), f)
-    print(f"Hyperparameters saved to {config_path}")
+    if not args.test_only:
+        timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M")
+        checkpoint_dir = f"./checkpoints/{args.dataset}/{timestamp}"
+        if not os.path.exists(checkpoint_dir):
+            os.makedirs(checkpoint_dir)
+        
+        config_path = os.path.join(checkpoint_dir, "config.yaml")
+        with open(config_path, 'w') as f:
+            yaml.dump(vars(args), f)
+        print(f"Hyperparameters saved to {config_path}")
+        
+        # 定義儲存路徑
+        model_save_path = os.path.join(checkpoint_dir, "best_model.pth")
+    else:
+        # 測試模式下，檢查是否有提供路徑
+        if args.checkpoint_path is None or not os.path.exists(args.checkpoint_path):
+            raise ValueError("錯誤：開啟 --test_only 模式時，必須提供有效的 --checkpoint_path！")
+        print(f"Test Mode Enabled. Will load model from: {args.checkpoint_path}")
+        model_save_path = args.checkpoint_path
 
     # 2. 裝置設定
     device = torch.device(f"cuda:{args.gpu}" if torch.cuda.is_available() else "cpu")
@@ -170,122 +181,176 @@ def main():
         print("權重載入成功！")
     # ----------------------------------
 
-    # 5. 訓練與驗證循環
-    early_stop_count = 0
     
-    for epoch in range(start_epoch, args.epochs):
-        model.train()
-        total_loss, total_l_seq, total_l_sim, total_l_rel = 0, 0, 0, 0 # 新增各項累計
+    # 5. 訓練與驗證循環(只有訓練模式才跑)
+    if not args.test_only:
+        early_stop_count = 0
         
-        pbar = tqdm(train_loader, desc=f"Epoch {epoch} Training")
-        for seqs, times, targets in pbar:
-            seqs, times, targets = seqs.to(device), times.to(device), targets.to(device)
+        for epoch in range(start_epoch, args.epochs):
+            model.train()
+            total_loss, total_l_seq, total_l_sim, total_l_rel = 0, 0, 0, 0 # 新增各項累計
             
-            optimizer.zero_grad()
-            # 取得分支分數
-            scores, alpha, sim_scores, rel_scores = model(seqs, times, targets, sim_laplacian, com_laplacian)
-            
-            # 計算聯合損失
-            loss, l_seq, l_sim, l_rel = criterion(scores, sim_scores, rel_scores, model)
-            
-            loss.backward()
-            optimizer.step()
-            
-            # 累計損失與各項分數
-            total_loss += loss.item()
-            total_l_seq += l_seq.item()
-            total_l_sim += l_sim.item()
-            total_l_rel += l_rel.item()
-            
-            pbar.set_postfix({"loss": f"{loss.item():.4f}"})
-
-        # 計算平均值
-        num_batches = len(train_loader)
-        avg_loss = total_loss / num_batches
-        avg_l_seq = total_l_seq / num_batches
-        avg_l_sim = total_l_sim / num_batches
-        avg_l_rel = total_l_rel / num_batches
-
-        # 驗證階段
-        model.eval()
-        val_hr_10 = []
-        val_ndcg_10 = []
-        with torch.no_grad():
-            for seqs, times, targets in tqdm(val_loader, desc=f"Epoch {epoch} Validating"):
+            pbar = tqdm(train_loader, desc=f"Epoch {epoch} Training")
+            for seqs, times, targets in pbar:
                 seqs, times, targets = seqs.to(device), times.to(device), targets.to(device)
                 
-                # targets 現在只有 [Batch, 1]，就是正確答案
-                target_pos = targets.squeeze() # [Batch]
+                optimizer.zero_grad()
+                # 取得分支分數
+                scores, alpha, sim_scores, rel_scores = model(seqs, times, targets, sim_laplacian, com_laplacian)
                 
-                # 1. 算出所有商品的分數 [Batch, Num_Items]
-                scores = model.predict_full(seqs, times, sim_laplacian, com_laplacian)
+                # 計算聯合損失
+                loss, l_seq, l_sim, l_rel = criterion(scores, sim_scores, rel_scores, model)
                 
-                # 2. 取得正確答案的分數
-                # gather 需要 index 維度一致，所以 unsqueeze
-                pos_scores = scores.gather(1, target_pos.unsqueeze(1)) # [Batch, 1]
+                loss.backward()
+                optimizer.step()
                 
-                # 3. Masking (屏蔽歷史購買過的商品)
-                # 這些商品的分數設為 -inf，讓它們排在最後面，不影響排名
-                scores.scatter_(1, seqs, -float('inf'))
+                # 累計損失與各項分數
+                total_loss += loss.item()
+                total_l_seq += l_seq.item()
+                total_l_sim += l_sim.item()
+                total_l_rel += l_rel.item()
                 
-                # 4. 計算排名 (GPU 平行運算)
-                # 排名 = (有多少個商品的分數 > 正確答案的分數) + 1
-                # 這是最快的排名算法，完全不需要 sort
-                rank = (scores > pos_scores).sum(dim=1) + 1 # [Batch]
-                
-                # 5. 計算指標
-                # HR@10
-                hr_10 = (rank <= 10).float().mean()
-                val_hr_10.append(hr_10.item())
-                
-                # NDCG@10
-                ndcg_10 = (1.0 / torch.log2(rank.float() + 1.0)) * (rank <= 10).float()
-                val_ndcg_10.append(ndcg_10.mean().item())
+                pbar.set_postfix({"loss": f"{loss.item():.4f}"})
 
-        avg_hr = np.mean(val_hr_10)
-        avg_ndcg = np.mean(val_ndcg_10)
-        
-        
-        # 取得當前學習率以便觀察
-        current_lr = optimizer.param_groups[0]['lr']
-        
-        # --- 完整印出所有指標 ---
-        print(f"Epoch {epoch} | TotalLoss: {avg_loss:.4f} | L_seq: {avg_l_seq:.4f} | L_sim: {avg_l_sim:.4f} | L_rel: {avg_l_rel:.4f}")
-        print(f"Val HR@10: {avg_hr:.4f} | Val NDCG@10: {avg_ndcg:.4f} | Current LR: {current_lr}")        
-        
-        # 執行學習率調整：根據目前的 avg_hr 判斷是否需要降速
-        scheduler.step(avg_hr)
-        
-        # Early Stopping 與權重儲存
-        if avg_hr > best_hr:
-            best_hr = avg_hr
-            early_stop_count = 0
-            torch.save(model.state_dict(), model_save_path)
-            print(f"New best model saved to {model_save_path}")
-        else:
-            early_stop_count += 1
-            if early_stop_count >= args.patience:
-                print(f"Early stopping triggered after {args.patience} epochs.")
-                break
+            # 計算平均值
+            num_batches = len(train_loader)
+            avg_loss = total_loss / num_batches
+            avg_l_seq = total_l_seq / num_batches
+            avg_l_sim = total_l_sim / num_batches
+            avg_l_rel = total_l_rel / num_batches
+
+            # 驗證階段
+            model.eval()
+            val_hr_10 = []
+            val_ndcg_10 = []
+            with torch.no_grad():
+                for seqs, times, targets in tqdm(val_loader, desc=f"Epoch {epoch} Validating"):
+                    seqs, times, targets = seqs.to(device), times.to(device), targets.to(device)
+                    
+                    # targets 現在只有 [Batch, 1]，就是正確答案
+                    target_pos = targets.squeeze() # [Batch]
+                    
+                    # 1. 算出所有商品的分數 [Batch, Num_Items]
+                    scores = model.predict_full(seqs, times, sim_laplacian, com_laplacian)
+                    
+                    # 2. 取得正確答案的分數
+                    # gather 需要 index 維度一致，所以 unsqueeze
+                    pos_scores = scores.gather(1, target_pos.unsqueeze(1)) # [Batch, 1]
+                    
+                    # 3. Masking (屏蔽歷史購買過的商品)
+                    # 這些商品的分數設為 -inf，讓它們排在最後面，不影響排名
+                    scores.scatter_(1, seqs, -float('inf'))
+                    
+                    # 4. 計算排名 (GPU 平行運算)
+                    # 排名 = (有多少個商品的分數 > 正確答案的分數) + 1
+                    # 這是最快的排名算法，完全不需要 sort
+                    rank = (scores > pos_scores).sum(dim=1) + 1 # [Batch]
+                    
+                    # 5. 計算指標
+                    # HR@10
+                    hr_10 = (rank <= 10).float().mean()
+                    val_hr_10.append(hr_10.item())
+                    
+                    # NDCG@10
+                    ndcg_10 = (1.0 / torch.log2(rank.float() + 1.0)) * (rank <= 10).float()
+                    val_ndcg_10.append(ndcg_10.mean().item())
+
+            avg_hr = np.mean(val_hr_10)
+            avg_ndcg = np.mean(val_ndcg_10)
+            
+            
+            # 取得當前學習率以便觀察
+            current_lr = optimizer.param_groups[0]['lr']
+            
+            # --- 完整印出所有指標 ---
+            print(f"Epoch {epoch} | TotalLoss: {avg_loss:.4f} | L_seq: {avg_l_seq:.4f} | L_sim: {avg_l_sim:.4f} | L_rel: {avg_l_rel:.4f}")
+            print(f"Val HR@10: {avg_hr:.4f} | Val NDCG@10: {avg_ndcg:.4f} | Current LR: {current_lr}")        
+            
+            # 執行學習率調整：根據目前的 avg_hr 判斷是否需要降速
+            scheduler.step(avg_hr)
+            
+            # Early Stopping 與權重儲存
+            if avg_hr > best_hr:
+                best_hr = avg_hr
+                early_stop_count = 0
+                torch.save(model.state_dict(), model_save_path)
+                print(f"New best model saved to {model_save_path}")
+            else:
+                early_stop_count += 1
+                if early_stop_count >= args.patience:
+                    print(f"Early stopping triggered after {args.patience} epochs.")
+                    break
 
     # 6. 最終測試
-    print("\n" + "="*20 + " Final Testing " + "="*20)
-    model.load_state_dict(torch.load(model_save_path))
+    # 6. 最終測試 (修正版：支援 Full Ranking)
+    print("\n" + "="*20 + " Final Testing (Full Ranking) " + "="*20)
+    
+    # 載入最佳權重
+    # [修改] 根據模式決定載入哪個權重
+    if args.test_only:
+        # 測試模式：載入指定的檔案
+        load_path = args.checkpoint_path
+    else:
+        # 訓練模式：載入剛剛存好的 best_model
+        load_path = model_save_path
+
+    if os.path.exists(load_path):
+        model.load_state_dict(torch.load(load_path))
+        print(f"Loaded best model from {load_path}")
+    else:
+        print(f"Error: Model file not found at {load_path}")
+        return # 找不到模型就沒必要測了
+    
     model.eval()
-    test_scores = []
+    
+    # 用來儲存所有 batch 的結果
+    test_hr_5, test_ndcg_5 = [], []
+    test_hr_10, test_ndcg_10 = [], []
+    test_hr_20, test_ndcg_20 = [], []
+    
     with torch.no_grad():
         for seqs, times, targets in tqdm(test_loader, desc="Testing"):
             seqs, times, targets = seqs.to(device), times.to(device), targets.to(device)
             
-            #scores, _ = model(seqs, targets, sim_laplacian, com_laplacian)
-            # 同樣改為接收四個值
-            scores, _, _, _ = model(seqs, times, targets, sim_laplacian, com_laplacian)
+            # targets 在全排名模式下只有 [Batch, 1]，就是正確答案
+            target_pos = targets.squeeze() 
+            # 處理 batch_size=1 的邊緣情況
+            if target_pos.dim() == 0:
+                target_pos = target_pos.unsqueeze(0)
             
-            test_scores.append(scores)
-        
-        all_test_scores = torch.cat(test_scores, dim=0)
-        final_results = get_metrics(0, all_test_scores, k_list=[5 , 10, 20])
-        print_metrics(final_results)
+            # 1. [關鍵] 呼叫 predict_full 算出所有商品的分數 [Batch, Num_Items]
+            # 確保你在 models/sd_iasr.py 裡已經加入了 predict_full 方法
+            scores = model.predict_full(seqs, times, sim_laplacian, com_laplacian)
+            
+            # 2. 取得正確答案的分數
+            # gather 需要 index 維度一致，所以 unsqueeze
+            pos_scores = scores.gather(1, target_pos.unsqueeze(1)) # [Batch, 1]
+            
+            # 3. Masking (屏蔽歷史購買過的商品)
+            # 將歷史商品的 index 設為負無限大，讓它們排在最後面
+            scores.scatter_(1, seqs, -float('inf'))
+            
+            # 4. 計算排名 (GPU 平行運算，極速！)
+            # 排名 = (有多少個商品的分數 > 正確答案的分數) + 1
+            rank = (scores > pos_scores).sum(dim=1) + 1 # [Batch]
+            
+            # 5. 計算指標
+            # HR@K
+            test_hr_5.append((rank <= 5).float().mean().item())
+            test_hr_10.append((rank <= 10).float().mean().item())
+            test_hr_20.append((rank <= 20).float().mean().item())
+            
+            # NDCG@K
+            test_ndcg_5.append(((1.0 / torch.log2(rank.float() + 1.0)) * (rank <= 5).float()).mean().item())
+            test_ndcg_10.append(((1.0 / torch.log2(rank.float() + 1.0)) * (rank <= 10).float()).mean().item())
+            test_ndcg_20.append(((1.0 / torch.log2(rank.float() + 1.0)) * (rank <= 20).float()).mean().item())
+
+    # 輸出最終平均結果
+    print("-" * 30)
+    print(f"Test HR@5:   {np.mean(test_hr_5):.4f} | NDCG@5:  {np.mean(test_ndcg_5):.4f}")
+    print(f"Test HR@10:  {np.mean(test_hr_10):.4f} | NDCG@10: {np.mean(test_ndcg_10):.4f}")
+    print(f"Test HR@20:  {np.mean(test_hr_20):.4f} | NDCG@20: {np.mean(test_ndcg_20):.4f}")
+    print("-" * 30)
     
 if __name__ == "__main__":
     main()
