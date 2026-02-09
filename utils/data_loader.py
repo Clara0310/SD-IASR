@@ -3,10 +3,16 @@ from torch.utils.data import Dataset, DataLoader
 import numpy as np
 
 class SequentialDataset(Dataset):
-    def __init__(self, data, max_len=50, time_span=256):
+    def __init__(self, data, max_len=50, time_span=256, num_items=0, is_eval=False):
         self.data = data
         self.max_len = max_len
         self.time_span = time_span
+        self.num_items = num_items # 儲存總商品數
+        self.is_eval = is_eval     # 標記是否為驗證/測試集
+        
+        # 預先建立全商品集合，加速運算
+        if self.is_eval and self.num_items > 0:
+            self.all_items_set = set(range(num_items))
 
     def __len__(self):
         return len(self.data)
@@ -65,7 +71,28 @@ class SequentialDataset(Dataset):
             time_seq[-idx:] = time_buckets[-idx:]
         
         # 3. 取得正樣本與負樣本 (其餘元素)
-        target_items = np.array(line[2:], dtype=np.int64)
+        # 檢查 line 的長度。
+        # 如果只有 3 個元素 [history, time, pos]，代表這是「輕量化全排名」資料
+        if len(line) == 3 and self.is_eval:
+            target_pos = line[2]
+            
+            # [即時生成負樣本]
+            # 負樣本 = 全部商品 - 歷史紀錄
+            # 注意：這裡的歷史紀錄應該包含 seq 裡的所有東西
+            visited = set(item_history)
+            # 也要排除自己 (pos)
+            visited.add(target_pos)
+            
+            # 使用集合運算快速取得負樣本
+            negatives = list(self.all_items_set - visited)
+            
+            # 組合：[正樣本, 負樣本1, 負樣本2....]
+            # 轉成 numpy array
+            target_items = np.array([target_pos] + negatives, dtype=np.int64)
+            
+        else:
+            # 訓練集或舊格式，直接讀取後面所有元素
+            target_items = np.array(line[2:], dtype=np.int64)
         
         return torch.LongTensor(seq), torch.LongTensor(time_seq), torch.LongTensor(target_items)
     
@@ -74,19 +101,23 @@ def get_loader(dataset_path, batch_size, max_len):
     # 使用 allow_pickle=True 讀取非結構化資料
     data = np.load(dataset_path, allow_pickle=True)
     
+    # [新增] 從 features 獲取總商品數
+    num_items = data['features'].shape[0]
+    
     # 建立 PyTorch DataLoader
     train_loader = DataLoader(
-        SequentialDataset(data['train_set'], max_len), 
+        SequentialDataset(data['train_set'], max_len, num_items=num_items), 
+        batch_size=batch_size, # 訓練集可以用大 batch，驗證和測試集用 batch_size=1 保持順序
         batch_size=1, 
         shuffle=True
     )
     val_loader = DataLoader(
-        SequentialDataset(data['val_set'], max_len), 
+        SequentialDataset(data['val_set'], max_len, num_items=num_items, is_eval=True), # 開啟 eval 模式 
         batch_size=1, 
         shuffle=False
     )
     test_loader = DataLoader(
-        SequentialDataset(data['test_set'], max_len), 
+        SequentialDataset(data['test_set'], max_len, num_items=num_items, is_eval=True), # 開啟 eval 模式 
         batch_size=1, 
         shuffle=False
     )

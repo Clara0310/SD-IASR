@@ -24,22 +24,35 @@ def pair_construct(user_seq_dict, num_items, train_neg_num, test_neg_num, random
         # 獲取所有可能的負樣本候選
         candidate_negs = list(all_items - set(item_seq))
         
-        # 處理全排名邏輯：若 test_neg_num 為 -1，則取全部候選
-        actual_test_neg = len(candidate_negs) if test_neg_num == -1 else min(len(candidate_negs), test_neg_num)
+        # [修改重點 1] 判斷是否為全排名模式
+        is_full_ranking = (test_neg_num == -1)
+        
+        # 如果不是全排名，才需要計算 actual_test_neg
+        actual_test_neg = min(len(candidate_negs), test_neg_num) if not is_full_ranking else 0
 
         # 1. 測試集
         test_pos = item_seq[-1]
         test_history = item_seq[:-1]
         test_time_history = time_seq[:-1]
-        test_neg = random.sample(candidate_negs, actual_test_neg)
-        test_set.append([test_history, test_time_history, test_pos] + test_neg)
+        
+        if is_full_ranking:
+            # [修改重點 2] 全排名模式下，只存 [History, Time, Pos]，不存負樣本！省下巨大空間
+            test_set.append([test_history, test_time_history, test_pos])
+        else:
+            test_neg = random.sample(candidate_negs, actual_test_neg)
+            test_set.append([test_history, test_time_history, test_pos] + test_neg)
 
         # 2. 驗證集
         val_pos = item_seq[-2]
         val_history = item_seq[:-2]
         val_time_history = time_seq[:-2]
-        val_neg = random.sample(candidate_negs, actual_test_neg)
-        val_set.append([val_history, val_time_history, val_pos] + val_neg)
+        
+        if is_full_ranking:
+            # [修改重點 3] 驗證集同理
+            val_set.append([val_history, val_time_history, val_pos])
+        else:
+            val_neg = random.sample(candidate_negs, actual_test_neg)
+            val_set.append([val_history, val_time_history, val_pos] + val_neg)
 
         # 3. 訓練集
         for i in range(1, len(item_seq) - 2):
