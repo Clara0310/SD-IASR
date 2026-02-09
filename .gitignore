@@ -8,6 +8,9 @@ data_preprocess/processed/
 #raw data folder
 data_preprocess/raw_data/
 
+#data for baselines
+data_for_baselines/
+
 #虛擬環境
 .venv/
 __pycache__/
