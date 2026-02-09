@@ -108,7 +108,6 @@ def get_loader(dataset_path, batch_size, max_len):
     train_loader = DataLoader(
         SequentialDataset(data['train_set'], max_len, num_items=num_items), 
         batch_size=batch_size, # 訓練集可以用大 batch，驗證和測試集用 batch_size=1 保持順序
-        batch_size=1, 
         shuffle=True
     )
     val_loader = DataLoader(
