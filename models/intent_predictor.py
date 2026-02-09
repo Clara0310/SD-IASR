@@ -66,3 +66,43 @@ class IntentPredictor(nn.Module):
         final_score = alpha * sim_score + (1 - alpha) * rel_score
 
         return final_score, alpha, sim_score, rel_score
+    
+
+
+    # [新增這個方法]
+    # [請將此方法加入 models/intent_predictor.py 的 IntentPredictor 類別中]
+    
+    def forward_full(self, sim_intents, rel_intents, all_sim_embs, all_cor_embs):
+        """
+        全矩陣加速運算 (配合你的 AlphaNet 和 Bilinear Layer)
+        """
+        # 1. 解包 Intent (因為你的模型回傳的是 tuple)
+        u_sim_last, u_sim_att = sim_intents
+        u_rel_last, u_rel_att = rel_intents
+
+        # 2. 計算 Alpha (使用你的 self.alpha_net)
+        # 你的模型需要把這四個接起來才能算 alpha
+        combined_context = torch.cat([u_sim_last, u_sim_att, u_rel_last, u_rel_att], dim=-1)
+        alpha = self.alpha_net(combined_context) # [Batch, 1]
+
+        # 3. 意圖融合 (對應原本 forward 的邏輯)
+        u_sim = self.dropout(u_sim_last + u_sim_att)
+        u_rel = self.dropout(u_rel_last + u_rel_att)
+
+        # 4. 全矩陣加速運算 (Matrix Multiplication)
+        # 你的模型有 w_sim 和 w_rel，所以要先乘上這個權重矩陣
+        
+        # Step A: 使用者向量變換 [Batch, Dim] @ [Dim, Dim] -> [Batch, Dim]
+        u_sim_trans = torch.matmul(u_sim, self.w_sim) 
+        u_rel_trans = torch.matmul(u_rel, self.w_rel) 
+        
+        # Step B: 與所有商品做內積 [Batch, Dim] @ [Dim, Num_Items] -> [Batch, Num_Items]
+        # all_sim_embs.t() 會把 [Num, Dim] 轉成 [Dim, Num]
+        sim_scores = torch.matmul(u_sim_trans, all_sim_embs.t())
+        rel_scores = torch.matmul(u_rel_trans, all_cor_embs.t())
+        
+        # 5. 加權融合
+        # alpha 自動廣播: [Batch, 1] * [Batch, Num_Items]
+        scores = alpha * sim_scores + (1 - alpha) * rel_scores
+        
+        return scores

@@ -71,27 +71,16 @@ class SequentialDataset(Dataset):
             time_seq[-idx:] = time_buckets[-idx:]
         
         # 3. 取得正樣本與負樣本 (其餘元素)
-        # 檢查 line 的長度。
-        # 如果只有 3 個元素 [history, time, pos]，代表這是「輕量化全排名」資料
-        if len(line) == 3 and self.is_eval:
-            target_pos = line[2]
-            
-            # [即時生成負樣本]
-            # 負樣本 = 全部商品 - 歷史紀錄
-            # 注意：這裡的歷史紀錄應該包含 seq 裡的所有東西
-            visited = set(item_history)
-            # 也要排除自己 (pos)
-            visited.add(target_pos)
-            
-            # 使用集合運算快速取得負樣本
-            negatives = list(self.all_items_set - visited)
-            
-            # 組合：[正樣本, 負樣本1, 負樣本2....]
-            # 轉成 numpy array
-            target_items = np.array([target_pos] + negatives, dtype=np.int64)
-            
+        # [修改這裡！] Target 處理
+        # 如果是驗證/測試模式，我們只需要 "正確答案" (Ground Truth)
+        # 不要再生成那 5 萬個負樣本了！
+        if self.is_eval:
+            # 確保只回傳正樣本 [pos]
+            # 注意：這裡假設 line[2] 是正樣本 ID (int)
+            target_pos = line[2] if isinstance(line[2], (int, np.integer)) else line[2][0]
+            target_items = np.array([target_pos], dtype=np.int64) 
         else:
-            # 訓練集或舊格式，直接讀取後面所有元素
+            # 訓練集維持原樣 (含負樣本)
             target_items = np.array(line[2:], dtype=np.int64)
         
         return torch.LongTensor(seq), torch.LongTensor(time_seq), torch.LongTensor(target_items)
@@ -110,14 +99,18 @@ def get_loader(dataset_path, batch_size, max_len):
         batch_size=batch_size, # 訓練集可以用大 batch，驗證和測試集用 batch_size=1 保持順序
         shuffle=True
     )
+    # [修改這裡！] 驗證集和測試集現在可以開大 Batch Size 了！
+    # 因為我們改用矩陣運算，一次算 256 個使用者的全排名也沒問題
+    eval_batch_size = batch_size # 用跟訓練一樣的大小，或者 128
+    
     val_loader = DataLoader(
         SequentialDataset(data['val_set'], max_len, num_items=num_items, is_eval=True), # 開啟 eval 模式 
-        batch_size=1, 
+        batch_size=eval_batch_size, 
         shuffle=False
     )
     test_loader = DataLoader(
         SequentialDataset(data['test_set'], max_len, num_items=num_items, is_eval=True), # 開啟 eval 模式 
-        batch_size=1, 
+        batch_size=eval_batch_size,
         shuffle=False
     )
     

@@ -208,19 +208,42 @@ def main():
 
         # 驗證階段
         model.eval()
-        val_hr = []
+        val_hr_10 = []
+        val_ndcg_10 = []
         with torch.no_grad():
-            # [修改] 使用 tqdm 包裝 val_loader，顯示 "Epoch {epoch} Validating"
             for seqs, times, targets in tqdm(val_loader, desc=f"Epoch {epoch} Validating"):
                 seqs, times, targets = seqs.to(device), times.to(device), targets.to(device)
                 
-                # scores, _ = model(seqs, targets, sim_laplacian, com_laplacian)
-                # 修改為接收四個值（後三個在驗證時通常用不到，可以用 _ 忽略）
-                scores, _, _, _ = model(seqs, times, targets, sim_laplacian, com_laplacian)
-                metrics = get_metrics(0, scores, k_list=[10])
-                val_hr.append(metrics['HR@10'])
-        
-        avg_hr = np.mean(val_hr)
+                # targets 現在只有 [Batch, 1]，就是正確答案
+                target_pos = targets.squeeze() # [Batch]
+                
+                # 1. 算出所有商品的分數 [Batch, Num_Items]
+                scores = model.predict_full(seqs, times, sim_laplacian, com_laplacian)
+                
+                # 2. 取得正確答案的分數
+                # gather 需要 index 維度一致，所以 unsqueeze
+                pos_scores = scores.gather(1, target_pos.unsqueeze(1)) # [Batch, 1]
+                
+                # 3. Masking (屏蔽歷史購買過的商品)
+                # 這些商品的分數設為 -inf，讓它們排在最後面，不影響排名
+                scores.scatter_(1, seqs, -float('inf'))
+                
+                # 4. 計算排名 (GPU 平行運算)
+                # 排名 = (有多少個商品的分數 > 正確答案的分數) + 1
+                # 這是最快的排名算法，完全不需要 sort
+                rank = (scores > pos_scores).sum(dim=1) + 1 # [Batch]
+                
+                # 5. 計算指標
+                # HR@10
+                hr_10 = (rank <= 10).float().mean()
+                val_hr_10.append(hr_10.item())
+                
+                # NDCG@10
+                ndcg_10 = (1.0 / torch.log2(rank.float() + 1.0)) * (rank <= 10).float()
+                val_ndcg_10.append(ndcg_10.mean().item())
+
+        avg_hr = np.mean(val_hr_10)
+        avg_ndcg = np.mean(val_ndcg_10)
         
         
         # 取得當前學習率以便觀察
@@ -228,7 +251,7 @@ def main():
         
         # --- 完整印出所有指標 ---
         print(f"Epoch {epoch} | TotalLoss: {avg_loss:.4f} | L_seq: {avg_l_seq:.4f} | L_sim: {avg_l_sim:.4f} | L_rel: {avg_l_rel:.4f}")
-        print(f"Val HR@10: {avg_hr:.4f} | Current LR: {current_lr}")        
+        print(f"Val HR@10: {avg_hr:.4f} | Val NDCG@10: {avg_ndcg:.4f} | Current LR: {current_lr}")        
         
         # 執行學習率調整：根據目前的 avg_hr 判斷是否需要降速
         scheduler.step(avg_hr)
