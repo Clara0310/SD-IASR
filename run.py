@@ -177,7 +177,7 @@ def main():
         model.train()
         total_loss, total_l_seq, total_l_sim, total_l_rel = 0, 0, 0, 0 # 新增各項累計
         
-        pbar = tqdm(train_loader, desc=f"Epoch {epoch}")
+        pbar = tqdm(train_loader, desc=f"Epoch {epoch} Training")
         for seqs, times, targets in pbar:
             seqs, times, targets = seqs.to(device), times.to(device), targets.to(device)
             
@@ -210,7 +210,8 @@ def main():
         model.eval()
         val_hr = []
         with torch.no_grad():
-            for seqs, times, targets in val_loader:
+            # [修改] 使用 tqdm 包裝 val_loader，顯示 "Epoch {epoch} Validating"
+            for seqs, times, targets in tqdm(val_loader, desc=f"Epoch {epoch} Validating"):
                 seqs, times, targets = seqs.to(device), times.to(device), targets.to(device)
                 
                 # scores, _ = model(seqs, targets, sim_laplacian, com_laplacian)
