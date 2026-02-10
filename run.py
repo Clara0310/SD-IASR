@@ -249,6 +249,10 @@ def main():
                     # 這些商品的分數設為 -inf，讓它們排在最後面，不影響排名
                     scores.scatter_(1, seqs, -float('inf'))
                     
+                    # 3.1 [修正] 把正確答案的分數「救回來」！
+                    # 如果正確答案在 seqs 裡，它剛剛被誤殺了，現在我們把它還原
+                    scores.scatter_(1, target_pos.unsqueeze(1), pos_scores)
+                    
                     # 4. 計算排名 (GPU 平行運算)
                     # 排名 = (有多少個商品的分數 > 正確答案的分數) + 1
                     # 這是最快的排名算法，完全不需要 sort
@@ -337,6 +341,10 @@ def main():
             # 3. Masking (屏蔽歷史購買過的商品)
             # 將歷史商品的 index 設為負無限大，讓它們排在最後面
             scores.scatter_(1, seqs, -float('inf'))
+            
+            # 3.1. [修正] 把正確答案的分數「救回來」！
+            # 如果正確答案在 seqs 裡，它剛剛被誤殺了，現在我們把它還原
+            scores.scatter_(1, target_pos.unsqueeze(1), pos_scores)
             
             # 4. 計算排名 (GPU 平行運算，極速！)
             # 排名 = (有多少個商品的分數 > 正確答案的分數) + 1
