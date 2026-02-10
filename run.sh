@@ -17,7 +17,7 @@ fi
 echo "Running on dataset: $DATASET"
 
 # 2. 模型基礎超參數
-EMB_DIM=128 #提升嵌入維度以增強表達能力
+EMB_DIM=64 #提升嵌入維度以增強表達能力
 BERT_DIM=768
 LR=0.001 #0.005 -> 0.001 ，降低學習率以提升訓練穩定性
 BATCH_SIZE=256
@@ -36,13 +36,13 @@ NHEAD=8      # 增加注意力頭數以提升模型表達能力
 
 #lr_scheduler 相關參數
 LR_MODE="max"     # 因為指標是 HR@10，所以是越大越好
-LR_FACTOR=0.1     # 觸發時將學習率乘以 0.1 
+LR_FACTOR=0.5     # 觸發時將學習率乘以 0.1 
 LR_PATIENCE=15     # 這是排程器的耐心值（例如 15 次沒進步就降速）
 
 # loss 權重參數
-LAMBDA_1=0.1
-LAMBDA_2=0.05
-LAMBDA_3=0.00001
+LAMBDA_1=0.01
+LAMBDA_2=0.01
+LAMBDA_3=0.0001
 
 # 新增Dropout 參數
 DROPOUT=0.3  # 給予 30% 的 Dropout，這對抗過擬合非常有效！
