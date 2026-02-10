@@ -63,8 +63,12 @@ def main():
     
     args = parser.parse_args()
     
+    # 建立時間標記字串
+    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M")
+
+    # 1. 建立 Checkpoints 目錄與儲存 Config
     if not args.test_only:
-        timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M")
+        # === 情況 A: 訓練模式 ===
         checkpoint_dir = f"./checkpoints/{args.dataset}/{timestamp}"
         if not os.path.exists(checkpoint_dir):
             os.makedirs(checkpoint_dir)
@@ -73,15 +77,19 @@ def main():
         with open(config_path, 'w') as f:
             yaml.dump(vars(args), f)
         print(f"Hyperparameters saved to {config_path}")
-        
-        # 定義儲存路徑
+
+        # [修正] 在這裡定義 model_save_path
         model_save_path = os.path.join(checkpoint_dir, "best_model.pth")
+        
     else:
-        # 測試模式下，檢查是否有提供路徑
-        if args.checkpoint_path is None or not os.path.exists(args.checkpoint_path):
-            raise ValueError("錯誤：開啟 --test_only 模式時，必須提供有效的 --checkpoint_path！")
-        print(f"Test Mode Enabled. Will load model from: {args.checkpoint_path}")
+        # === 情況 B: 測試模式 ===
+        # 檢查是否有提供 checkpoint 路徑
+        if args.checkpoint_path is None:
+            raise ValueError("Error: --test_only requires --checkpoint_path")
+            
+        # [修正] 直接使用使用者提供的路徑作為 model_save_path
         model_save_path = args.checkpoint_path
+        print(f"Test Mode: Loading model from {model_save_path}")
 
     # 2. 裝置設定
     device = torch.device(f"cuda:{args.gpu}" if torch.cuda.is_available() else "cpu")
@@ -171,7 +179,7 @@ def main():
     
     best_hr = 0
     start_epoch = 0
-    model_save_path = os.path.join(checkpoint_dir, "best_model.pth")
+    #model_save_path = os.path.join(checkpoint_dir, "best_model.pth")
     
     # --- 續跑邏輯 (Resume Logic) ---
     if args.resume and os.path.exists(model_save_path):
