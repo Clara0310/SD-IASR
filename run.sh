@@ -42,10 +42,10 @@ LR_PATIENCE=15     # 這是排程器的耐心值（例如 15 次沒進步就降�
 # loss 權重參數
 LAMBDA_1=0.01
 LAMBDA_2=0.01
-LAMBDA_3=0.0001
+LAMBDA_3=0.001
 
 # 新增Dropout 參數
-DROPOUT=0.3  # 給予 30% 的 Dropout，這對抗過擬合非常有效！
+DROPOUT=0.5  # 給予 50% 的 Dropout，這對抗過擬合非常有效！
 
 # 4. 執行訓練指令
 # 移除了 ALPHA，並加入了 --resume 續跑與 --max_seq_len 參數
