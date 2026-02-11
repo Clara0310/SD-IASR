@@ -225,8 +225,8 @@ def main():
                 diff_loss = torch.abs(F.cosine_similarity(u_sim_att, u_cor_att, dim=-1)).mean()
 
                 # 4. 融合最終損失
-                # 給予 diff_loss 一個權重 (0.01)，這是一個超參數，可以微調。
-                total_final_loss = loss + 0.01 * diff_loss
+                # 給予 diff_loss 一個權重 (0.1)，這是一個超參數，可以微調。
+                total_final_loss = loss + 0.1 * diff_loss
 
                 # 5. 執行反向傳播與優化
                 total_final_loss.backward()

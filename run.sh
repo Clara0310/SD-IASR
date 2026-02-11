@@ -28,7 +28,7 @@ MAX_SEQ_LEN=50
 # 3. SD-IASR 核心解耦參數
 # low_k 與 mid_k 控制圖譜濾波器的傳播步數
 LOW_K=1 #2  ，增加低頻傳播步數以捕捉更多鄰居資訊
-MID_K=2 #2  ，增加中頻傳播步數以捕捉更多鄰居資訊
+MID_K=1 #2  ，增加中頻傳播步數以捕捉更多鄰居資訊
 
 # Transformer 相關參數
 LAYERS=2      # 增加 Transformer 深度

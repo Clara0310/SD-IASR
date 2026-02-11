@@ -16,6 +16,9 @@ class SpectralConv(nn.Module):
         # 定義譜卷積的權重矩陣
         self.weight = nn.Parameter(torch.FloatTensor(c_in, c_out))
         nn.init.xavier_uniform_(self.weight)
+        
+        # 在 __init__ 中新增一個可學習參數 gamma
+        self.gamma = nn.Parameter(torch.ones(1) * 0.1) # 初始給予 0.1 的權重
 
     def get_laplacian(self, edge_index, num_nodes):
         """計算正規化圖拉普拉斯矩陣: L = I - D^(-1/2) A D^(-1/2)"""
@@ -60,25 +63,20 @@ class SpectralConv(nn.Module):
         #x = F.dropout(x, p=self.dropout, training=self.training)
         
         if filter_type == 'low':
-            # --- 低通濾波分支 ---
             out = x_transformed
             for _ in range(self.prop_step):
                 out = torch.spmm(laplacian, out)
-                
-            # [關鍵修改] 加上殘差項
-            return identity + out
-            
+            # 這裡使用可學習的 gamma，讓模型自己決定要吸收多少圖資訊
+            return identity + self.gamma * out
+
         elif filter_type == 'mid':
-            # [恢復並強化] 中通濾波邏輯
             low_component = x_transformed
             for _ in range(self.prop_step):
                 low_component = torch.spmm(laplacian, low_component)
-            
-            # 中通信號 = (低頻 k 階) - (低頻 k+1 階)
             mid_signal = low_component - torch.spmm(laplacian, low_component)
-            
-            # 給予中通特徵 2.0 倍的縮放係數，強迫模型注意到互補關係的微調
-            return identity + 2.0 * mid_signal
+
+            # 中通訊號通常較弱，給予更高的固定強化係數，再加上 gamma
+            return identity + self.gamma * 5.0 * mid_signal
         
         
 
