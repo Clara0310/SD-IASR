@@ -110,8 +110,8 @@ class IntentPredictor(nn.Module):
         # === [關鍵修正] 修改意圖融合方式，使其與 forward 一致 ===
         # 舊版：u_sim = self.dropout(u_sim_last + u_sim_att)
         # 3. 意圖融合 (對應原本 forward 的邏輯)
-        u_sim = self.dropout(u_sim_last + u_sim_att)
-        u_rel = self.dropout(u_rel_last + u_rel_att)
+        #u_sim = self.dropout(u_sim_last + u_sim_att)
+        #u_rel = self.dropout(u_rel_last + u_rel_att)
         
         # 新版：使用 fusion_sim 與 fusion_rel (與階段五 forward 邏輯對齊)
         u_sim = self.fusion_sim(torch.cat([u_sim_last, u_sim_att], dim=-1))
