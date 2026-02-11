@@ -2,6 +2,7 @@ import datetime
 from xml.parsers.expat import model
 import torch
 import torch.optim as optim
+import torch.nn.functional as F  # [新增或確認這行]
 import argparse
 import os
 from sklearn.preprocessing import KBinsDiscretizer
@@ -21,10 +22,10 @@ def main():
     # 基礎設定
     parser.add_argument('--dataset', type=str, default='Grocery_and_Gourmet_Food')
     parser.add_argument('--batch_size', type=int, default=256)
-    parser.add_argument('--embedding_dim', type=int, default=64) 
+    parser.add_argument('--embedding_dim', type=int, default=128) # 從 64 調大
 
     parser.add_argument('--bert_dim', type=int, default=768, help='Dimension of pre-trained BERT embeddings')
-    parser.add_argument('--lr', type=float, default=0.001) #0.005
+    parser.add_argument('--lr', type=float, default=0.0005) #0.001 調小為 0.0005，#稍微調降以穩定訓練
     parser.add_argument('--epochs', type=int, default=1000)
     parser.add_argument('--patience', type=int, default=50)
     parser.add_argument('--gpu', type=int, default=0)
@@ -197,19 +198,38 @@ def main():
         for epoch in range(start_epoch, args.epochs):
             model.train()
             total_loss, total_l_seq, total_l_sim, total_l_rel = 0, 0, 0, 0 # 新增各項累計
+            total_alpha = 0     # [新增] 初始化 alpha 累加器
+            total_feat_sim = 0  # [新增] 初始化特徵相似度累加器
+            total_diff_loss = 0  # [新增] 初始化意圖差異損失累加器
+            
+            
             
             pbar = tqdm(train_loader, desc=f"Epoch {epoch} Training")
             for seqs, times, targets in pbar:
                 seqs, times, targets = seqs.to(device), times.to(device), targets.to(device)
                 
                 optimizer.zero_grad()
-                # 取得分支分數
-                scores, alpha, sim_scores, rel_scores = model(seqs, times, targets, sim_laplacian, com_laplacian)
-                
-                # 計算聯合損失
+                # 1. 取得模型輸出
+                # 配合階段四的 sd_iasr.py，這裡要接收 7 個回傳值
+                scores, alpha, sim_scores, rel_scores, feat_sim, u_sim_att, u_cor_att = model(
+                    seqs, times, targets, sim_laplacian, com_laplacian
+                )
+
+                # 2. 計算原始的聯合損失 (BPR + 正則化)
                 loss, l_seq, l_sim, l_rel = criterion(scores, sim_scores, rel_scores, model)
-                
-                loss.backward()
+
+                # 3. [關鍵新增] 計算意圖差異損失 (Difference Loss)
+                # 目的：強迫「相似意圖」與「互補意圖」不要長得太像。
+                # F.cosine_similarity 會算出兩者的相似度 (介於 -1 到 1 之間)
+                # 我們取絕對值 torch.abs，並求平均 mean()。數值越低代表兩者區分得越開。
+                diff_loss = torch.abs(F.cosine_similarity(u_sim_att, u_cor_att, dim=-1)).mean()
+
+                # 4. 融合最終損失
+                # 給予 diff_loss 一個權重 (0.01)，這是一個超參數，可以微調。
+                total_final_loss = loss + 0.01 * diff_loss
+
+                # 5. 執行反向傳播與優化
+                total_final_loss.backward()
                 optimizer.step()
                 
                 # 累計損失與各項分數
@@ -217,15 +237,25 @@ def main():
                 total_l_seq += l_seq.item()
                 total_l_sim += l_sim.item()
                 total_l_rel += l_rel.item()
+                # [新增] 累計監控數值
+                total_alpha += alpha.mean().item()  # 紀錄 Alpha 均值
+                total_feat_sim += feat_sim.item()   # 紀錄特徵相似度
+                total_diff_loss += diff_loss.item() # 紀錄意圖差異損失
                 
-                pbar.set_postfix({"loss": f"{loss.item():.4f}"})
-
+                
+                pbar.set_postfix({"loss": f"{loss.item():.4f}", "alpha": f"{alpha.mean().item():.3f}"})
+                
             # 計算平均值
             num_batches = len(train_loader)
             avg_loss = total_loss / num_batches
             avg_l_seq = total_l_seq / num_batches
             avg_l_sim = total_l_sim / num_batches
             avg_l_rel = total_l_rel / num_batches
+            
+            avg_alpha = total_alpha / len(train_loader)
+            avg_feat_sim = total_feat_sim / len(train_loader)
+            
+            avg_diff_loss = total_diff_loss / len(train_loader)
 
             # 驗證階段
             model.eval()
@@ -275,7 +305,7 @@ def main():
             current_lr = optimizer.param_groups[0]['lr']
             
             # --- 完整印出所有指標 ---
-            print(f"Epoch {epoch} | TotalLoss: {avg_loss:.4f} | L_seq: {avg_l_seq:.4f} | L_sim: {avg_l_sim:.4f} | L_rel: {avg_l_rel:.4f}")
+            print(f"Epoch {epoch} | TotalLoss: {avg_loss:.4f} | L_seq: {avg_l_seq:.4f} | L_sim: {avg_l_sim:.4f} | L_rel: {avg_l_rel:.4f}| Diff_Loss: {avg_diff_loss:.4f} | Alpha: {avg_alpha:.4f} | Feat_Sim: {avg_feat_sim:.4f}")
             print(f"Val HR@10: {avg_hr:.4f} | Val NDCG@10: {avg_ndcg:.4f} | Current LR: {current_lr}")        
             
             # 執行學習率調整：根據目前的 avg_hr 判斷是否需要降速

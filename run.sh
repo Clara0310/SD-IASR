@@ -17,9 +17,9 @@ fi
 echo "Running on dataset: $DATASET"
 
 # 2. 模型基礎超參數
-EMB_DIM=64 #提升嵌入維度以增強表達能力
+EMB_DIM=128 #提升嵌入維度以增強表達能力
 BERT_DIM=768
-LR=0.001 #0.005 -> 0.001 ，降低學習率以提升訓練穩定性
+LR=0.0005 #0.001 調小為 0.0005，稍微調降以穩定訓練
 BATCH_SIZE=256
 EPOCHS=1000
 PATIENCE=50
@@ -27,7 +27,7 @@ MAX_SEQ_LEN=50
 
 # 3. SD-IASR 核心解耦參數
 # low_k 與 mid_k 控制圖譜濾波器的傳播步數
-LOW_K=2 #2  ，增加低頻傳播步數以捕捉更多鄰居資訊
+LOW_K=1 #2  ，增加低頻傳播步數以捕捉更多鄰居資訊
 MID_K=2 #2  ，增加中頻傳播步數以捕捉更多鄰居資訊
 
 # Transformer 相關參數
@@ -40,12 +40,12 @@ LR_FACTOR=0.5     # 觸發時將學習率乘以 0.1
 LR_PATIENCE=15     # 這是排程器的耐心值（例如 15 次沒進步就降速）
 
 # loss 權重參數
-LAMBDA_1=0.01
-LAMBDA_2=0.01
+LAMBDA_1=1.0
+LAMBDA_2=1.2
 LAMBDA_3=0.001
 
 # 新增Dropout 參數
-DROPOUT=0.5  # 給予 50% 的 Dropout，這對抗過擬合非常有效！
+DROPOUT=0.2  
 
 # 4. 執行訓練指令
 # 移除了 ALPHA，並加入了 --resume 續跑與 --max_seq_len 參數

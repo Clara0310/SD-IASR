@@ -44,31 +44,43 @@ class SpectralConv(nn.Module):
         實作譜濾波器
         filter_type: 'low' 為低通濾波器 (相似性), 'mid' 為中通濾波器 (互補性)
         """
-        # 初始線性轉換
-        x = torch.matmul(x, self.weight)
+        """
+        實作帶有殘差連接的譜濾波器
+        """
+        # 1. 紀錄原始輸入作為殘差項 (Identity)
+        # 這能確保高品質的 BERT 特徵被完整保留
+        identity = x
+        
+        # 2. 執行線性轉換與 Dropout
+        # 注意：這裡會將特徵從 x 變換為卷積分支的特徵
+        x_transformed = torch.matmul(x, self.weight)
+        x_transformed = F.dropout(x_transformed, p=self.dropout, training=self.training)
         
         # training=self.training 確保只有在訓練時會隨機丟棄，測試時會保留
-        x = F.dropout(x, p=self.dropout, training=self.training)
+        #x = F.dropout(x, p=self.dropout, training=self.training)
         
         if filter_type == 'low':
-        # 論文: [1/2 * (I + A_hat)]^k
-        # 簡單實作可保留 A_hat^k，或加入自環
-            out = x
+            # --- 低通濾波分支 ---
+            out = x_transformed
             for _ in range(self.prop_step):
                 out = torch.spmm(laplacian, out)
-            return out
+                
+            # [關鍵修改] 加上殘差項
+            return identity + out
             
         elif filter_type == 'mid':
-            # 論文: (I - A_hat) * A_hat^k
-            # 先做 k 次低通傳播
-            low_component = x
+            # [恢復並強化] 中通濾波邏輯
+            low_component = x_transformed
             for _ in range(self.prop_step):
                 low_component = torch.spmm(laplacian, low_component)
             
-            # 再套用一次高通算子 (I - A_hat)
-            # out = A_hat^k * x - A_hat * (A_hat^k * x)
-            out = low_component - torch.spmm(laplacian, low_component)
-            return out
+            # 中通信號 = (低頻 k 階) - (低頻 k+1 階)
+            mid_signal = low_component - torch.spmm(laplacian, low_component)
+            
+            # 給予中通特徵 2.0 倍的縮放係數，強迫模型注意到互補關係的微調
+            return identity + 2.0 * mid_signal
+        
+        
 
 class SpectralDisentangler(nn.Module):
     def __init__(self, item_num, emb_dim, low_k, mid_k,dropout=0.0):

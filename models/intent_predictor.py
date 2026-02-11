@@ -25,9 +25,17 @@ class IntentPredictor(nn.Module):
         self.w_sim = nn.Parameter(torch.FloatTensor(emb_dim, emb_dim))
         self.w_rel = nn.Parameter(torch.FloatTensor(emb_dim, emb_dim))
         
+        # [新增] 定義融合層，將拼接後的 2*emb_dim 壓縮回 emb_dim
+        self.fusion_sim = nn.Linear(emb_dim * 2, emb_dim)
+        self.fusion_rel = nn.Linear(emb_dim * 2, emb_dim)
+        
         nn.init.xavier_uniform_(self.w_sim)
         nn.init.xavier_uniform_(self.w_rel)
 
+        # 初始化權重
+        nn.init.xavier_uniform_(self.fusion_sim.weight)
+        nn.init.xavier_uniform_(self.fusion_rel.weight)
+        
     def forward(self, sim_intents, rel_intents, target_sim_embs, target_cor_embs):
         """
         sim_intents: (u_sim_last, u_sim_att)
@@ -38,10 +46,24 @@ class IntentPredictor(nn.Module):
         u_sim_last, u_sim_att = sim_intents
         u_rel_last, u_rel_att = rel_intents
 
+
+        # --- [修改] 意圖融合：從「加法」改為「拼接 + 線性層」 ---
         # 1. 意圖融合：結合近期與全局資訊
         # 這裡採用加和或拼接後的線性轉換，確保與候選商品維度一致
-        u_sim = self.dropout(u_sim_last + u_sim_att)
-        u_rel = self.dropout(u_rel_last + u_rel_att)
+        #u_sim = self.dropout(u_sim_last + u_sim_att)
+        #u_rel = self.dropout(u_rel_last + u_rel_att)
+        
+        # 相似性意圖融合
+        u_sim = self.fusion_sim(torch.cat([u_sim_last, u_sim_att], dim=-1))
+        u_sim = self.dropout(F.relu(u_sim))
+        
+        # 互補性意圖融合
+        u_rel = self.fusion_rel(torch.cat([u_rel_last, u_rel_att], dim=-1))
+        u_rel = self.dropout(F.relu(u_rel))
+        # ---------------------------------------------------
+        
+        
+        
 
         # 2. 計算動態權重 alpha
         # 融合四個意圖特徵來判斷當前使用者受哪種關係影響較大

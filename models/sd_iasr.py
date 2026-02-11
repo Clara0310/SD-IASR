@@ -26,8 +26,10 @@ class SDIASR(nn.Module):
         # 負責將拼接後的巨大向量 (1600維) 壓縮回 emb_dim (如 128維)
         self.feature_fusion = nn.Sequential(
             nn.Linear(self.fusion_input_dim, emb_dim),
+            nn.LayerNorm(emb_dim), # [新增] 標準化高維特徵輸入
             nn.ReLU(),
-            nn.Linear(emb_dim, emb_dim)
+            nn.Linear(emb_dim, emb_dim),
+            nn.LayerNorm(emb_dim)  # [新增] 確保輸出給 item_embedding 的特徵穩定
         )
         
         # D. 最終的商品嵌入層
@@ -78,9 +80,17 @@ class SDIASR(nn.Module):
         # [新增] 在初始 Embedding 後加 Dropout
         initial_embs = self.dropout(initial_embs)
 
+        
         # B. 執行譜解耦：生成相似性特徵 X_sim 與 互補性特徵 X_cor
         x_sim, x_cor = self.spectral_disentangler(initial_embs, sim_laplacian, com_laplacian)
-
+        
+        # === [新增] 計算兩個空間的特徵相似度 (診斷點 2) ===
+        # 我們想知道譜解耦後，兩個矩陣是否分得很開
+        with torch.no_grad():
+            # 計算所有商品在兩個空間的餘弦相似度均值
+            feat_sim = F.cosine_similarity(x_sim, x_cor, dim=-1).mean()
+        # ===============================================
+    
         # C. 提取序列中各商品的解耦特徵
         seq_sim_embs = F.embedding(seq_indices, x_sim) # [batch, seq_len, emb_dim]
         seq_cor_embs = F.embedding(seq_indices, x_cor) # [batch, seq_len, emb_dim]
@@ -102,7 +112,11 @@ class SDIASR(nn.Module):
         # G. 意圖預測與自適應融合
         scores, alpha, sim_scores, rel_scores = self.predictor(sim_intents, cor_intents, target_sim_embs, target_cor_embs)
 
-        return scores, alpha, sim_scores, rel_scores
+        # [修改回傳值] 加入兩個全局意圖向量 (u_sim_att, u_cor_att) 以供診斷與 Loss 使用
+        u_sim_att = sim_intents[1]
+        u_cor_att = cor_intents[1]
+        
+        return scores, alpha, sim_scores, rel_scores, feat_sim, u_sim_att, u_cor_att
     
     def load_pretrain_embedding(self, cid2_emb, cid3_emb, item_to_cid, item_to_price):
         
@@ -183,9 +197,12 @@ class SDIASR(nn.Module):
         initial_embs = self.item_embedding(all_item_indices)
         initial_embs = self.dropout(initial_embs)
         
+        
         # 2. 執行譜解耦 (算出所有商品的 Sim/Cor 特徵)
         # [Num_Items, Dim]
         x_sim, x_cor = self.spectral_disentangler(initial_embs, sim_laplacian, com_laplacian)
+    
+        
         
         # 3. 取得序列特徵 & User Intent
         # 這裡會從 x_sim 查表拿出序列裡的商品特徵
