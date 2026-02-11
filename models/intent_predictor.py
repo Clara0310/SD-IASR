@@ -107,9 +107,19 @@ class IntentPredictor(nn.Module):
         combined_context = torch.cat([u_sim_last, u_sim_att, u_rel_last, u_rel_att], dim=-1)
         alpha = self.alpha_net(combined_context) # [Batch, 1]
 
+        # === [關鍵修正] 修改意圖融合方式，使其與 forward 一致 ===
+        # 舊版：u_sim = self.dropout(u_sim_last + u_sim_att)
         # 3. 意圖融合 (對應原本 forward 的邏輯)
         u_sim = self.dropout(u_sim_last + u_sim_att)
         u_rel = self.dropout(u_rel_last + u_rel_att)
+        
+        # 新版：使用 fusion_sim 與 fusion_rel (與階段五 forward 邏輯對齊)
+        u_sim = self.fusion_sim(torch.cat([u_sim_last, u_sim_att], dim=-1))
+        u_sim = self.dropout(F.relu(u_sim))
+        
+        u_rel = self.fusion_rel(torch.cat([u_rel_last, u_rel_att], dim=-1))
+        u_rel = self.dropout(F.relu(u_rel))
+        # ===================================================
 
         # 4. 全矩陣加速運算 (Matrix Multiplication)
         # 你的模型有 w_sim 和 w_rel，所以要先乘上這個權重矩陣
