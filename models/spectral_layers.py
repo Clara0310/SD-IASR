@@ -18,7 +18,10 @@ class SpectralConv(nn.Module):
         nn.init.xavier_uniform_(self.weight)
         
         # 在 __init__ 中新增一個可學習參數 gamma
-        self.gamma = nn.Parameter(torch.ones(1) * 0.1) # 初始給予 0.1 的權重
+        #self.gamma = nn.Parameter(torch.ones(1) * 0.1) # 初始給予 0.1 的權重
+        # [修改] 將 nn.Parameter 移除，改為固定數值
+        # 初始建議設為 0.5，強迫模型必須吸收 50% 的圖結構信號
+        self.gamma = 0.5
 
     def get_laplacian(self, edge_index, num_nodes):
         """計算正規化圖拉普拉斯矩陣: L = I - D^(-1/2) A D^(-1/2)"""
@@ -66,7 +69,7 @@ class SpectralConv(nn.Module):
             out = x_transformed
             for _ in range(self.prop_step):
                 out = torch.spmm(laplacian, out)
-            # 這裡使用可學習的 gamma，讓模型自己決定要吸收多少圖資訊
+            # [修正] 這裡直接使用固定值 self.gamma
             return identity + self.gamma * out
 
         elif filter_type == 'mid':

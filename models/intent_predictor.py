@@ -55,11 +55,11 @@ class IntentPredictor(nn.Module):
         
         # 相似性意圖融合
         u_sim = self.fusion_sim(torch.cat([u_sim_last, u_sim_att], dim=-1))
-        u_sim = self.dropout(F.relu(u_sim))
+        u_sim = self.dropout(u_sim)
         
         # 互補性意圖融合
         u_rel = self.fusion_rel(torch.cat([u_rel_last, u_rel_att], dim=-1))
-        u_rel = self.dropout(F.relu(u_rel))
+        u_rel = self.dropout(u_rel)
         # ---------------------------------------------------
         
         
@@ -115,10 +115,10 @@ class IntentPredictor(nn.Module):
         
         # 新版：使用 fusion_sim 與 fusion_rel (與階段五 forward 邏輯對齊)
         u_sim = self.fusion_sim(torch.cat([u_sim_last, u_sim_att], dim=-1))
-        u_sim = self.dropout(F.relu(u_sim))
+        u_sim = self.dropout(u_sim)
         
         u_rel = self.fusion_rel(torch.cat([u_rel_last, u_rel_att], dim=-1))
-        u_rel = self.dropout(F.relu(u_rel))
+        u_rel = self.dropout(u_rel)
         # ===================================================
 
         # 4. 全矩陣加速運算 (Matrix Multiplication)

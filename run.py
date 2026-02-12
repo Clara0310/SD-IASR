@@ -210,23 +210,21 @@ def main():
                 
                 optimizer.zero_grad()
                 # 1. 取得模型輸出
-                # 配合階段四的 sd_iasr.py，這裡要接收 7 個回傳值
-                scores, alpha, sim_scores, rel_scores, feat_sim, u_sim_att, u_cor_att = model(
-                    seqs, times, targets, sim_laplacian, com_laplacian
-                )
+                # 配合階段四的 sd_iasr.py，這裡要接收 9 個回傳值
+                outputs = model(seqs, times, targets, sim_laplacian, com_laplacian)
+                scores, alpha, sim_scores, rel_scores, feat_sim, u_sim_att, u_cor_att, x_sim, x_cor = outputs
 
                 # 2. 計算原始的聯合損失 (BPR + 正則化)
                 loss, l_seq, l_sim, l_rel = criterion(scores, sim_scores, rel_scores, model)
 
-                # 3. [關鍵新增] 計算意圖差異損失 (Difference Loss)
-                # 目的：強迫「相似意圖」與「互補意圖」不要長得太像。
-                # F.cosine_similarity 會算出兩者的相似度 (介於 -1 到 1 之間)
-                # 我們取絕對值 torch.abs，並求平均 mean()。數值越低代表兩者區分得越開。
-                diff_loss = torch.abs(F.cosine_similarity(u_sim_att, u_cor_att, dim=-1)).mean()
+                # 3. [關鍵新增] 商品層級解耦損失 (Item-level Disentangle Loss)
+                # 我們希望所有商品的相似嵌入與互補嵌入越不一樣越好
+                # 使用餘弦相似度的絕對值均值作為懲罰
+                item_diff_loss = torch.mean(torch.abs(F.cosine_similarity(x_sim, x_cor, dim=-1)))
 
                 # 4. 融合最終損失
-                # 給予 diff_loss 一個權重 (0.1)，這是一個超參數，可以微調。
-                total_final_loss = loss + 0.1 * diff_loss
+                # 給予 item_diff_loss 一個權重 (0.1)，這是一個超參數，可以微調。
+                total_final_loss = loss + 0.1 * item_diff_loss
 
                 # 5. 執行反向傳播與優化
                 total_final_loss.backward()
@@ -240,7 +238,7 @@ def main():
                 # [新增] 累計監控數值
                 total_alpha += alpha.mean().item()  # 紀錄 Alpha 均值
                 total_feat_sim += feat_sim.item()   # 紀錄特徵相似度
-                total_diff_loss += diff_loss.item() # 紀錄意圖差異損失
+                total_item_diff_loss += item_diff_loss.item() # 紀錄意圖差異損失
                 
                 
                 pbar.set_postfix({"loss": f"{loss.item():.4f}", "alpha": f"{alpha.mean().item():.3f}"})
@@ -255,7 +253,7 @@ def main():
             avg_alpha = total_alpha / len(train_loader)
             avg_feat_sim = total_feat_sim / len(train_loader)
             
-            avg_diff_loss = total_diff_loss / len(train_loader)
+            avg_item_diff_loss = total_item_diff_loss / len(train_loader)
 
             # 驗證階段
             model.eval()
@@ -305,7 +303,7 @@ def main():
             current_lr = optimizer.param_groups[0]['lr']
             
             # --- 完整印出所有指標 ---
-            print(f"Epoch {epoch} | TotalLoss: {avg_loss:.4f} | L_seq: {avg_l_seq:.4f} | L_sim: {avg_l_sim:.4f} | L_rel: {avg_l_rel:.4f}| Diff_Loss: {avg_diff_loss:.4f} | Alpha: {avg_alpha:.4f} | Feat_Sim: {avg_feat_sim:.4f}")
+            print(f"Epoch {epoch} | TotalLoss: {avg_loss:.4f} | L_seq: {avg_l_seq:.4f} | L_sim: {avg_l_sim:.4f} | L_rel: {avg_l_rel:.4f}| Item_Diff_Loss: {avg_item_diff_loss:.4f} | Alpha: {avg_alpha:.4f} | Feat_Sim: {avg_feat_sim:.4f}")
             print(f"Val HR@10: {avg_hr:.4f} | Val NDCG@10: {avg_ndcg:.4f} | Current LR: {current_lr}")        
             
             # 執行學習率調整：根據目前的 avg_hr 判斷是否需要降速

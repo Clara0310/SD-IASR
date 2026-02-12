@@ -116,7 +116,7 @@ class SDIASR(nn.Module):
         u_sim_att = sim_intents[1]
         u_cor_att = cor_intents[1]
         
-        return scores, alpha, sim_scores, rel_scores, feat_sim, u_sim_att, u_cor_att
+        return scores, alpha, sim_scores, rel_scores, feat_sim, u_sim_att, u_cor_att,x_sim, x_cor
     
     def load_pretrain_embedding(self, cid2_emb, cid3_emb, item_to_cid, item_to_price):
         
