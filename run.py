@@ -200,7 +200,7 @@ def main():
             total_loss, total_l_seq, total_l_sim, total_l_rel = 0, 0, 0, 0 # 新增各項累計
             total_alpha = 0     # [新增] 初始化 alpha 累加器
             total_feat_sim = 0  # [新增] 初始化特徵相似度累加器
-            total_diff_loss = 0  # [新增] 初始化意圖差異損失累加器
+            total_item_diff_loss = 0  # [新增] 初始化意圖差異損失累加器
             
             
             
