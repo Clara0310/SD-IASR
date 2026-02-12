@@ -20,7 +20,7 @@ class SpectralConv(nn.Module):
         # 在 __init__ 中新增一個可學習參數 gamma
         #self.gamma = nn.Parameter(torch.ones(1) * 0.1) # 初始給予 0.1 的權重
         # [修改] 將 nn.Parameter 移除，改為固定數值
-        # 初始建議設為 0.5，強迫模型必須吸收 50% 的圖結構信號
+        # 將固定係數從 0.5 調降至 0.1 或 0.2
         self.gamma = 0.5
 
     def get_laplacian(self, edge_index, num_nodes):

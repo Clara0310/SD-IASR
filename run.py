@@ -223,8 +223,8 @@ def main():
                 item_diff_loss = torch.mean(torch.abs(F.cosine_similarity(x_sim, x_cor, dim=-1)))
 
                 # 4. 融合最終損失
-                # 給予 item_diff_loss 一個權重 (0.1)，這是一個超參數，可以微調。
-                total_final_loss = loss + 0.1 * item_diff_loss
+                # 將解耦權重從 0.1 降至 0.01 (降一個數量級)
+                total_final_loss = loss + 0.15 * item_diff_loss
 
                 # 5. 執行反向傳播與優化
                 total_final_loss.backward()
