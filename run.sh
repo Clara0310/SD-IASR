@@ -22,7 +22,7 @@ BERT_DIM=768
 LR=0.0005 #0.001 調小為 0.0005，稍微調降以穩定訓練
 BATCH_SIZE=256
 EPOCHS=1000
-PATIENCE=50
+PATIENCE=100
 MAX_SEQ_LEN=50
 
 # 3. SD-IASR 核心解耦參數
@@ -37,7 +37,7 @@ NHEAD=8      # 增加注意力頭數以提升模型表達能力
 #lr_scheduler 相關參數
 LR_MODE="max"     # 因為指標是 HR@10，所以是越大越好
 LR_FACTOR=0.5     # 觸發時將學習率乘以 0.1 
-LR_PATIENCE=15     # 這是排程器的耐心值（例如 15 次沒進步就降速）
+LR_PATIENCE=25     # 這是排程器的耐心值（例如 15 次沒進步就降速）
 
 # loss 權重參數
 LAMBDA_1=1.0

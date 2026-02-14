@@ -251,8 +251,7 @@ def main():
                 # 將解耦權重從 0.1 降至 0.01 (降一個數量級)
                 #total_final_loss = loss + 0.15 * item_diff_loss
                 # --- [修改這一行] ---
-                # 將解耦權重從 0.15 降至 0.05
-                total_final_loss = loss + 0.05 * item_diff_loss
+                total_final_loss = loss + 0.01 * item_diff_loss
 
                 # 5. 執行反向傳播與優化
                 total_final_loss.backward()
