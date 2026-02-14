@@ -111,15 +111,21 @@ class SpectralDisentangler(nn.Module):
         self.low_conv = SpectralConv(emb_dim, emb_dim, low_k, dropout=dropout,gamma=gamma)
         self.mid_conv = SpectralConv(emb_dim, emb_dim, mid_k, dropout=dropout,gamma=gamma)
         
-    def forward(self, item_embs, sim_laplacian, com_laplacian):
-        """
-        雙通道譜解耦過程
-        item_embs: 初始商品嵌入 (來自 BERT)
-        """
-        # 通道 1: 相似性解耦 (低通濾波)
-        sim_features = self.low_conv(item_embs, sim_laplacian, filter_type='low')
-        
-        # 通道 2: 互補性解耦 (中通濾波)
-        com_features = self.mid_conv(item_embs, com_laplacian, filter_type='mid')
-        
+    def forward(self, item_embs, adj_self, adj_dele): # 修改參數名
+        # [關鍵修正] 兩路都要傳入 self 與 dele 矩陣
+        sim_features = self.low_conv(item_embs, adj_self, adj_dele, filter_type='low')
+        com_features = self.mid_conv(item_embs, adj_self, adj_dele, filter_type='mid')
         return sim_features, com_features
+        
+    # def forward(self, item_embs, sim_laplacian, com_laplacian):
+    #     """
+    #     雙通道譜解耦過程
+    #     item_embs: 初始商品嵌入 (來自 BERT)
+    #     """
+    #     # 通道 1: 相似性解耦 (低通濾波)
+    #     sim_features = self.low_conv(item_embs, sim_laplacian, filter_type='low')
+        
+    #     # 通道 2: 互補性解耦 (中通濾波)
+    #     com_features = self.mid_conv(item_embs, com_laplacian, filter_type='mid')
+        
+    #     return sim_features, com_features

@@ -133,7 +133,7 @@ def main():
 
     # [關鍵修正] 在 dim=0 拼接（垂直疊加邊的清單），並在 dim=0 去重
     combined_edges = torch.cat([sim_edges, com_edges], dim=0) 
-    combined_edges = torch.unique(combined_edges, dim=0)
+    combined_edges = torch.unique(combined_edges, dim=0).t() # [加上 .t() 轉置]
 
     #==============================================================================
     # [關鍵修正] 轉置為 [2, E] 格式，以符合 create_laplacian 的預期
@@ -243,11 +243,19 @@ def main():
                 # --- [修改這一行] ---
                 # 將原本餵入 sim_laplacian, com_laplacian 改為兩次都餵入同一個 combined_laplacian
                 #outputs = model(seqs, times, targets, combined_laplacian, combined_laplacian)
-                outputs = model(seqs, times, targets, adj_self, adj_dele)
-                scores = model.predict_full(seqs, times, adj_self, adj_dele)
+                #outputs = model(seqs, times, targets, adj_self, adj_dele)
+                #scores = model.predict_full(seqs, times, adj_self, adj_dele)
 
                 # 2. 計算原始的聯合損失 (BPR + 正則化)
+                #loss, l_seq, l_sim, l_rel = criterion(scores, sim_scores, rel_scores, model)
+                
+                # 1. 直接從 model 回傳值中拆解出所有變數
+                outputs = model(seqs, times, targets, adj_self, adj_dele)
+                scores, alpha, sim_scores, rel_scores, feat_sim, u_sim_att, u_cor_att, x_sim, x_cor = outputs
+
+                # 2. 計算損失（使用 model 產生的各項分數）
                 loss, l_seq, l_sim, l_rel = criterion(scores, sim_scores, rel_scores, model)
+                
 
                 # 3. [關鍵新增] 商品層級解耦損失 (Item-level Disentangle Loss)
                 # 我們希望所有商品的相似嵌入與互補嵌入越不一樣越好
@@ -401,8 +409,7 @@ def main():
             # 1. [關鍵] 呼叫 predict_full 算出所有商品的分數 [Batch, Num_Items]
             # 確保你在 models/sd_iasr.py 裡已經加入了 predict_full 方法
             #scores = model.predict_full(seqs, times, sim_laplacian, com_laplacian)
-            scores = model.predict_full(seqs, times, combined_laplacian, combined_laplacian)
-            
+            scores = model.predict_full(seqs, times, adj_self, adj_dele)
             # 2. 取得正確答案的分數
             # gather 需要 index 維度一致，所以 unsqueeze
             pos_scores = scores.gather(1, target_pos.unsqueeze(1)) # [Batch, 1]

@@ -207,7 +207,7 @@ class SDIASR(nn.Module):
 
     # [新增這個方法]
 
-    def predict_full(self, seq_indices, time_indices, sim_laplacian, com_laplacian):
+    def predict_full(self, seq_indices, time_indices, adj_self, adj_dele):
         # 1. 取得 "所有" 商品的 Embedding (0 ~ item_num-1)
         all_item_indices = torch.arange(self.item_num).to(seq_indices.device)
         initial_embs = self.item_embedding(all_item_indices)
@@ -218,7 +218,7 @@ class SDIASR(nn.Module):
         # [Num_Items, Dim]
         #x_sim, x_cor = self.spectral_disentangler(initial_embs, sim_laplacian, com_laplacian)
         
-        # 1. 變數名要對應新傳入的參數 (adj_self, adj_dele)
+        #  變數名要對應新傳入的參數 (adj_self, adj_dele)
         raw_sim, raw_cor = self.spectral_disentangler(initial_embs, adj_self, adj_dele)
 
         # 2. [關鍵遺漏] 這裡也要加回 BERT 殘差！否則測試時會完全失去 BERT 資訊
