@@ -44,8 +44,8 @@ LAMBDA_1=1.0
 LAMBDA_2=1.5
 LAMBDA_3=0.001 # 提高 Weight Decay 正則化 (從 0.001 提升至 0.01)
 
-LAMBDA_DIFF=0.03   # 階段十二建議的黃金分割點
-GAMMA=0.1          # 稍微回升一點圖信號
+LAMBDA_DIFF=0.05   # 階段十二建議的黃金分割點
+GAMMA=0.15          # 稍微回升一點圖信號
 
 
 # 提高 Dropout (從 0.2 提升至 0.3)

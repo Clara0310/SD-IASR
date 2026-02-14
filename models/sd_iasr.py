@@ -70,11 +70,11 @@ class SDIASR(nn.Module):
         
         
 
-    def forward(self, seq_indices, time_indices, target_indices, sim_laplacian, com_laplacian):
+    def forward(self, seq_indices, time_indices, target_indices, adj_self, adj_dele):
         """
         seq_indices: 使用者歷史行為序列 [batch, seq_len]
         target_indices: 正樣本與負樣本商品 ID [batch, 1 + neg_num]
-        sim_laplacian & com_laplacian: 相似性與互補性圖拉普拉斯矩陣
+        adj_self & adj_dele: 相似性與互補性圖鄰接矩陣
         """
         # A. 取得所有商品的基礎嵌入
         all_item_indices = torch.arange(self.item_num).to(seq_indices.device)
@@ -88,9 +88,15 @@ class SDIASR(nn.Module):
 
         
         # B. 執行譜解耦：生成相似性特徵 X_sim 與 互補性特徵 X_cor
-        x_sim, x_cor = self.spectral_disentangler(initial_embs, sim_laplacian, com_laplacian)
+        #x_sim, x_cor = self.spectral_disentangler(initial_embs, sim_laplacian, com_laplacian)
+        raw_sim, raw_cor = self.spectral_disentangler(initial_embs, adj_self, adj_dele)
         
-        # --- [新增以下兩行] ---
+        # [關鍵] 在這裡加回殘差，讓模型保留 BERT 語義
+        # 這樣譜特徵就不會被 identity 淹沒到坍縮，但 BERT 特徵又能被保護
+        x_sim = initial_embs + self.gamma * raw_sim
+        x_cor = initial_embs + self.gamma * raw_cor
+        
+        # 執行原本的 LayerNorm
         x_sim = self.layer_norm(x_sim)
         x_cor = self.layer_norm(x_cor)
         

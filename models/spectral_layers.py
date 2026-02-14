@@ -42,42 +42,66 @@ class SpectralConv(nn.Module):
         indices = torch.from_numpy(np.vstack((a_hat.row, a_hat.col)).astype(np.int64))
         values = torch.from_numpy(a_hat.data.astype(np.float32))
         return torch.sparse_coo_tensor(indices, values, torch.Size(a_hat.shape))
-
-    def forward(self, x, laplacian, filter_type='low'):
-        """
-        實作譜濾波器
-        filter_type: 'low' 為低通濾波器 (相似性), 'mid' 為中通濾波器 (互補性)
-        """
-        """
-        實作帶有殘差連接的譜濾波器
-        """
-        # 1. 紀錄原始輸入作為殘差項 (Identity)
-        # 這能確保高品質的 BERT 特徵被完整保留
-        identity = x
-        
-        # 2. 執行線性轉換與 Dropout
-        # 注意：這裡會將特徵從 x 變換為卷積分支的特徵
-        x_transformed = torch.matmul(x, self.weight)
-        x_transformed = F.dropout(x_transformed, p=self.dropout, training=self.training)
-        
-        # training=self.training 確保只有在訓練時會隨機丟棄，測試時會保留
-        #x = F.dropout(x, p=self.dropout, training=self.training)
+    
+    
+    def forward(self, x, adj_self, adj_dele, filter_type='low'):
+        # 1. 移除 Identity，Spectral Layer 只提取圖特徵
         
         if filter_type == 'low':
-            out = x_transformed
-            for _ in range(self.prop_step):
-                out = torch.spmm(laplacian, out)
-            # [修正] 這裡直接使用固定值 self.gamma
-            return identity + self.gamma * out
+            # 低通邏輯：0.5 * (A + I)
+            conv_op = 0.5 * adj_self
+            out = torch.spmm(conv_op, x)
+            for _ in range(self.prop_step - 1):
+                out = torch.spmm(conv_op, out)
+            
+            # 先聚合再乘權重
+            return torch.matmul(out, self.weight)
 
         elif filter_type == 'mid':
-            low_component = x_transformed
-            for _ in range(self.prop_step):
-                low_component = torch.spmm(laplacian, low_component)
-            mid_signal = low_component - torch.spmm(laplacian, low_component)
+            # 中通邏輯：-(A + I) * (A - I)
+            # 這是產生「物理排斥力」的關鍵，能強烈推開相似性
+            conv_op = -torch.spmm(adj_self, adj_dele)
+            out = torch.spmm(conv_op, x)
+            for _ in range(self.prop_step - 1):
+                out = torch.spmm(conv_op, out)
+                
+            return torch.matmul(out, self.weight)
 
-            # 中通訊號通常較弱，給予更高的固定強化係數，再加上 gamma
-            return identity + self.gamma * 3.0 * mid_signal
+    # def forward(self, x, laplacian, filter_type='low'):
+    #     """
+    #     實作譜濾波器
+    #     filter_type: 'low' 為低通濾波器 (相似性), 'mid' 為中通濾波器 (互補性)
+    #     """
+    #     """
+    #     實作帶有殘差連接的譜濾波器
+    #     """
+    #     # 1. 紀錄原始輸入作為殘差項 (Identity)
+    #     # 這能確保高品質的 BERT 特徵被完整保留
+    #     identity = x
+        
+    #     # 2. 執行線性轉換與 Dropout
+    #     # 注意：這裡會將特徵從 x 變換為卷積分支的特徵
+    #     x_transformed = torch.matmul(x, self.weight)
+    #     x_transformed = F.dropout(x_transformed, p=self.dropout, training=self.training)
+        
+    #     # training=self.training 確保只有在訓練時會隨機丟棄，測試時會保留
+    #     #x = F.dropout(x, p=self.dropout, training=self.training)
+        
+    #     if filter_type == 'low':
+    #         out = x_transformed
+    #         for _ in range(self.prop_step):
+    #             out = torch.spmm(laplacian, out)
+    #         # [修正] 這裡直接使用固定值 self.gamma
+    #         return identity + self.gamma * out
+
+    #     elif filter_type == 'mid':
+    #         low_component = x_transformed
+    #         for _ in range(self.prop_step):
+    #             low_component = torch.spmm(laplacian, low_component)
+    #         mid_signal = low_component - torch.spmm(laplacian, low_component)
+
+    #         # 中通訊號通常較弱，給予更高的固定強化係數，再加上 gamma
+    #         return identity + self.gamma * 3.0 * mid_signal
         
         
 

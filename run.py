@@ -14,7 +14,7 @@ from tqdm import tqdm
 # 匯入自定義模組
 from models import SDIASR
 from utils.data_loader import get_loader
-from utils.graph_utils import create_laplacian
+from utils.graph_utils import create_laplacian,create_sr_matrices
 from utils.metrics import get_metrics, print_metrics
 from loss import SDIASRLoss
 
@@ -135,13 +135,17 @@ def main():
     combined_edges = torch.cat([sim_edges, com_edges], dim=0) 
     combined_edges = torch.unique(combined_edges, dim=0)
 
+    #==============================================================================
     # [關鍵修正] 轉置為 [2, E] 格式，以符合 create_laplacian 的預期
-    combined_edges = combined_edges.t() 
-
+    #combined_edges = combined_edges.t() 
     # 建立合併拉普拉斯矩陣
-    combined_laplacian = create_laplacian(combined_edges, num_items).to(device)
-    print(f"Graph merged: Total Unique Edges({combined_edges.shape[1]})")
-    
+    #combined_laplacian = create_laplacian(combined_edges, num_items).to(device)
+    #print(f"Graph merged: Total Unique Edges({combined_edges.shape[1]})")
+    # [修改] 替換原有的 create_laplacian 呼叫
+    adj_self, adj_dele = create_sr_matrices(combined_edges, num_items)
+    adj_self, adj_dele = adj_self.to(device), adj_dele.to(device)
+    print(f"SR-Rec matrices generated: Self & Dele")
+    #==============================================================================
     
 
     # 4. 初始化模型與 Loss
@@ -238,9 +242,9 @@ def main():
                 #outputs = model(seqs, times, targets, sim_laplacian, com_laplacian)
                 # --- [修改這一行] ---
                 # 將原本餵入 sim_laplacian, com_laplacian 改為兩次都餵入同一個 combined_laplacian
-                outputs = model(seqs, times, targets, combined_laplacian, combined_laplacian)
-                
-                scores, alpha, sim_scores, rel_scores, feat_sim, u_sim_att, u_cor_att, x_sim, x_cor = outputs
+                #outputs = model(seqs, times, targets, combined_laplacian, combined_laplacian)
+                outputs = model(seqs, times, targets, adj_self, adj_dele)
+                scores = model.predict_full(seqs, times, adj_self, adj_dele)
 
                 # 2. 計算原始的聯合損失 (BPR + 正則化)
                 loss, l_seq, l_sim, l_rel = criterion(scores, sim_scores, rel_scores, model)

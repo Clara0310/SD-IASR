@@ -4,6 +4,38 @@ import torch
 import numpy as np
 import scipy.sparse as sp
 
+
+# utils/graph_utils.py 
+
+def create_sr_matrices(edge_index, num_nodes):
+    """參考 SR-Rec 的矩陣生成邏輯"""
+
+    
+    row, col = edge_index[0].cpu().numpy(), edge_index[1].cpu().numpy()
+    adj = sp.coo_matrix((np.ones(row.shape[0]), (row, col)), shape=(num_nodes, num_nodes))
+    # 對稱化
+    adj = adj + adj.T.multiply(adj.T > adj) - adj.multiply(adj.T > adj)
+    
+    # 列歸一化 (Row-normalize)
+    rowsum = np.array(adj.sum(1))
+    r_inv = np.power(rowsum, -1).flatten()
+    r_inv[np.isinf(r_inv)] = 0.
+    r_mat_inv = sp.diags(r_inv)
+    adj_norm = r_mat_inv.dot(adj)
+    
+    # 生成 A+I (Self) 與 A-I (Dele)
+    adj_norm_self = adj_norm + sp.eye(num_nodes)
+    adj_norm_dele = adj_norm - sp.eye(num_nodes)
+    
+    def to_torch_sparse(mx):
+        mx = mx.tocoo().astype(np.float32)
+        indices = torch.from_numpy(np.vstack((mx.row, mx.col)).astype(np.int64))
+        values = torch.from_numpy(mx.data)
+        return torch.sparse_coo_tensor(indices, values, torch.Size(mx.shape))
+
+    return to_torch_sparse(adj_norm_self), to_torch_sparse(adj_norm_dele)
+
+
 def create_laplacian(edge_index, num_nodes):
     """
     將邊索引轉換為正規化拉普拉斯矩陣: L = I - D^-1/2 * A * D^-1/2
