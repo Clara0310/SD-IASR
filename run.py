@@ -308,7 +308,7 @@ def main():
                     
                     # 1. 算出所有商品的分數 [Batch, Num_Items]
                     #scores = model.predict_full(seqs, times, sim_laplacian, com_laplacian)
-                    scores = model.predict_full(seqs, times, combined_laplacian, combined_laplacian)
+                    scores = model.predict_full(seqs, times, adj_self, adj_dele)
                     # 2. 取得正確答案的分數
                     # gather 需要 index 維度一致，所以 unsqueeze
                     pos_scores = scores.gather(1, target_pos.unsqueeze(1)) # [Batch, 1]

@@ -216,7 +216,14 @@ class SDIASR(nn.Module):
         
         # 2. 執行譜解耦 (算出所有商品的 Sim/Cor 特徵)
         # [Num_Items, Dim]
-        x_sim, x_cor = self.spectral_disentangler(initial_embs, sim_laplacian, com_laplacian)
+        #x_sim, x_cor = self.spectral_disentangler(initial_embs, sim_laplacian, com_laplacian)
+        
+        # 1. 變數名要對應新傳入的參數 (adj_self, adj_dele)
+        raw_sim, raw_cor = self.spectral_disentangler(initial_embs, adj_self, adj_dele)
+
+        # 2. [關鍵遺漏] 這裡也要加回 BERT 殘差！否則測試時會完全失去 BERT 資訊
+        x_sim = initial_embs + self.gamma * raw_sim
+        x_cor = initial_embs + self.gamma * raw_cor
     
         # --- [新增以下兩行] ---
         x_sim = self.layer_norm(x_sim)
