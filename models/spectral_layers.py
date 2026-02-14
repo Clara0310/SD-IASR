@@ -7,7 +7,7 @@ import numpy as np
 import scipy.sparse as sp
 
 class SpectralConv(nn.Module):
-    def __init__(self, c_in, c_out, prop_step,dropout=0.0):
+    def __init__(self, c_in, c_out, prop_step,dropout=0.0,gamma=0.1):
         super(SpectralConv, self).__init__()
         self.c_in = c_in
         self.c_out = c_out
@@ -18,10 +18,8 @@ class SpectralConv(nn.Module):
         nn.init.xavier_uniform_(self.weight)
         
         # 在 __init__ 中新增一個可學習參數 gamma
-        #self.gamma = nn.Parameter(torch.ones(1) * 0.1) # 初始給予 0.1 的權重
-        # [修改] 將 nn.Parameter 移除，改為固定數值
-        # 將固定係數從 0.5 調降至 0.1 或 0.2
-        self.gamma = 0.05
+        #self.gamma = nn.Parameter(torch.ones(1) * 0.1) 
+        self.gamma = gamma # [修改] 讓它等於傳入的數值
 
     def get_laplacian(self, edge_index, num_nodes):
         """計算正規化圖拉普拉斯矩陣: L = I - D^(-1/2) A D^(-1/2)"""
@@ -84,10 +82,10 @@ class SpectralConv(nn.Module):
         
 
 class SpectralDisentangler(nn.Module):
-    def __init__(self, item_num, emb_dim, low_k, mid_k,dropout=0.0):
+    def __init__(self, item_num, emb_dim, low_k, mid_k,dropout=0.0,gamma=0.1):
         super(SpectralDisentangler, self).__init__()
-        self.low_conv = SpectralConv(emb_dim, emb_dim, low_k, dropout=dropout)
-        self.mid_conv = SpectralConv(emb_dim, emb_dim, mid_k, dropout=dropout)
+        self.low_conv = SpectralConv(emb_dim, emb_dim, low_k, dropout=dropout,gamma=gamma)
+        self.mid_conv = SpectralConv(emb_dim, emb_dim, mid_k, dropout=dropout,gamma=gamma)
         
     def forward(self, item_embs, sim_laplacian, com_laplacian):
         """

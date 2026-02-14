@@ -1,4 +1,5 @@
 import datetime
+from html import parser
 from xml.parsers.expat import model
 import torch
 import torch.optim as optim
@@ -44,6 +45,9 @@ def main():
     parser.add_argument('--lambda_1', type=float, default=1.0, help='Weight for similarity loss')
     parser.add_argument('--lambda_2', type=float, default=1.0, help='Weight for complementarity loss')
     parser.add_argument('--lambda_3', type=float, default=0.01, help='Regularization weight')
+    
+    parser.add_argument('--lambda_diff', type=float, default=0.03, help='Weight for item disentangle loss')
+    parser.add_argument('--gamma', type=float, default=0.1, help='Spectral signal ratio')
     
     # 新增Dropout 參數
     parser.add_argument('--dropout', type=float, default=0.1, help='Dropout rate')
@@ -150,7 +154,8 @@ def main():
         max_seq_len=args.max_seq_len,
         num_layers=args.num_layers, # 傳入層數
         nhead=args.nhead ,          # 傳入頭數
-        dropout=args.dropout        # 傳入 dropout
+        dropout=args.dropout ,       # 傳入 dropout
+        gamma=args.gamma
     ).to(device)
     
     # --- 新增：載入預訓練 BERT 嵌入的邏輯 ---
@@ -250,8 +255,8 @@ def main():
                 # 4. 融合最終損失
                 # 將解耦權重從 0.1 降至 0.01 (降一個數量級)
                 #total_final_loss = loss + 0.15 * item_diff_loss
-                # --- [修改這一行] ---
-                total_final_loss = loss + 0.01 * item_diff_loss
+                # [修改] 使用 args.lambda_diff 取代硬編碼的 0.01
+                total_final_loss = loss + args.lambda_diff * item_diff_loss
 
                 # 5. 執行反向傳播與優化
                 total_final_loss.backward()

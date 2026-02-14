@@ -6,7 +6,7 @@ from models.sequential_encoder import SequentialEncoder
 from models.intent_predictor import IntentPredictor
 
 class SDIASR(nn.Module):
-    def __init__(self, item_num, bert_dim, emb_dim, low_k, mid_k, max_seq_len, num_layers, nhead,dropout=0.1):
+    def __init__(self, item_num, bert_dim, emb_dim, low_k, mid_k, max_seq_len, num_layers, nhead,dropout=0.1,gamma=0.1):
         super(SDIASR, self).__init__()
         self.item_num = item_num
         self.emb_dim = emb_dim
@@ -48,7 +48,8 @@ class SDIASR(nn.Module):
                     emb_dim, 
                     low_k, 
                     mid_k, 
-                    dropout=dropout  # <--- 加上這行
+                    dropout=dropout,  # <--- 加上這行
+                    gamma=gamma
                 )        
         
         # === 3. 序列編碼與意圖捕捉模組 === (Dual-Channel Transformer)

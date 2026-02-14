@@ -44,14 +44,19 @@ LAMBDA_1=1.0
 LAMBDA_2=1.5
 LAMBDA_3=0.001 # 提高 Weight Decay 正則化 (從 0.001 提升至 0.01)
 
+LAMBDA_DIFF=0.03   # 階段十二建議的黃金分割點
+GAMMA=0.1          # 稍微回升一點圖信號
 
-# 1. 提高 Dropout (從 0.2 提升至 0.3)
+
+# 提高 Dropout (從 0.2 提升至 0.3)
 DROPOUT=0.35 
 
 # 4. 執行訓練指令
 # 移除了 ALPHA，並加入了 --resume 續跑與 --max_seq_len 參數
 python run.py \
     --dataset $DATASET \
+    --lambda_diff $LAMBDA_DIFF \
+    --gamma $GAMMA \
     --embedding_dim $EMB_DIM \
     --bert_dim $BERT_DIM \
     --lr $LR \
