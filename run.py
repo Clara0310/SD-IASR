@@ -119,8 +119,23 @@ def main():
     
     
     
-    sim_laplacian = create_laplacian(raw_data['sim_edge_index'], num_items).to(device)
-    com_laplacian = create_laplacian(raw_data['com_edge_index'], num_items).to(device)
+    #sim_laplacian = create_laplacian(raw_data['sim_edge_index'], num_items).to(device)
+    #com_laplacian = create_laplacian(raw_data['com_edge_index'], num_items).to(device)
+    # --- [替換為以下程式碼] ---
+    # 1. 取得兩組邊的聯集
+    sim_edges = torch.tensor(raw_data['sim_edge_index'])
+    com_edges = torch.tensor(raw_data['com_edge_index'])
+    combined_edges = torch.cat([sim_edges, com_edges], dim=1) # 合併邊
+
+    # 2. 移除重複的邊並保持無向圖一致性
+    combined_edges, _ = torch.sort(combined_edges, dim=0)
+    combined_edges = torch.unique(combined_edges, dim=1)
+
+    # 3. 建立唯一的合併拉普拉斯矩陣 (取代原本的兩個)
+    combined_laplacian = create_laplacian(combined_edges, num_items).to(device)
+    print(f"Graph merged: Total Unique Edges({combined_edges.shape[1]})")
+    
+    
 
     # 4. 初始化模型與 Loss
     model = SDIASR(
@@ -211,7 +226,12 @@ def main():
                 optimizer.zero_grad()
                 # 1. 取得模型輸出
                 # 配合階段四的 sd_iasr.py，這裡要接收 9 個回傳值
-                outputs = model(seqs, times, targets, sim_laplacian, com_laplacian)
+                
+                #outputs = model(seqs, times, targets, sim_laplacian, com_laplacian)
+                # --- [修改這一行] ---
+                # 將原本餵入 sim_laplacian, com_laplacian 改為兩次都餵入同一個 combined_laplacian
+                outputs = model(seqs, times, targets, combined_laplacian, combined_laplacian)
+                
                 scores, alpha, sim_scores, rel_scores, feat_sim, u_sim_att, u_cor_att, x_sim, x_cor = outputs
 
                 # 2. 計算原始的聯合損失 (BPR + 正則化)
@@ -224,7 +244,10 @@ def main():
 
                 # 4. 融合最終損失
                 # 將解耦權重從 0.1 降至 0.01 (降一個數量級)
-                total_final_loss = loss + 0.15 * item_diff_loss
+                #total_final_loss = loss + 0.15 * item_diff_loss
+                # --- [修改這一行] ---
+                # 將解耦權重從 0.15 降至 0.05
+                total_final_loss = loss + 0.05 * item_diff_loss
 
                 # 5. 執行反向傳播與優化
                 total_final_loss.backward()
@@ -267,8 +290,8 @@ def main():
                     target_pos = targets.squeeze() # [Batch]
                     
                     # 1. 算出所有商品的分數 [Batch, Num_Items]
-                    scores = model.predict_full(seqs, times, sim_laplacian, com_laplacian)
-                    
+                    #scores = model.predict_full(seqs, times, sim_laplacian, com_laplacian)
+                    scores = model.predict_full(seqs, times, combined_laplacian, combined_laplacian)
                     # 2. 取得正確答案的分數
                     # gather 需要 index 維度一致，所以 unsqueeze
                     pos_scores = scores.gather(1, target_pos.unsqueeze(1)) # [Batch, 1]
@@ -360,7 +383,8 @@ def main():
             
             # 1. [關鍵] 呼叫 predict_full 算出所有商品的分數 [Batch, Num_Items]
             # 確保你在 models/sd_iasr.py 裡已經加入了 predict_full 方法
-            scores = model.predict_full(seqs, times, sim_laplacian, com_laplacian)
+            #scores = model.predict_full(seqs, times, sim_laplacian, com_laplacian)
+            scores = model.predict_full(seqs, times, combined_laplacian, combined_laplacian)
             
             # 2. 取得正確答案的分數
             # gather 需要 index 維度一致，所以 unsqueeze

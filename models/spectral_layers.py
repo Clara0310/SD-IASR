@@ -21,7 +21,7 @@ class SpectralConv(nn.Module):
         #self.gamma = nn.Parameter(torch.ones(1) * 0.1) # 初始給予 0.1 的權重
         # [修改] 將 nn.Parameter 移除，改為固定數值
         # 將固定係數從 0.5 調降至 0.1 或 0.2
-        self.gamma = 0.5
+        self.gamma = 0.15
 
     def get_laplacian(self, edge_index, num_nodes):
         """計算正規化圖拉普拉斯矩陣: L = I - D^(-1/2) A D^(-1/2)"""
@@ -79,7 +79,7 @@ class SpectralConv(nn.Module):
             mid_signal = low_component - torch.spmm(laplacian, low_component)
 
             # 中通訊號通常較弱，給予更高的固定強化係數，再加上 gamma
-            return identity + self.gamma * 5.0 * mid_signal
+            return identity + self.gamma * 3.0 * mid_signal
         
         
 
