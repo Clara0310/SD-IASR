@@ -122,16 +122,23 @@ def main():
     #sim_laplacian = create_laplacian(raw_data['sim_edge_index'], num_items).to(device)
     #com_laplacian = create_laplacian(raw_data['com_edge_index'], num_items).to(device)
     # --- [替換為以下程式碼] ---
-    # 1. 取得兩組邊的聯集
-    sim_edges = torch.tensor(raw_data['sim_edge_index'])
-    com_edges = torch.tensor(raw_data['com_edge_index'])
-    combined_edges = torch.cat([sim_edges, com_edges], dim=1) # 合併邊
+    # --- [正確的合併邏輯] ---
+    # 1. 取得兩組邊的聯集 (目前的格式是 [E, 2])
+    sim_edges = torch.tensor(raw_data['sim_edge_index']) # [451949, 2]
+    com_edges = torch.tensor(raw_data['com_edge_index']) # [749935, 2]
 
-    # 2. 移除重複的邊並保持無向圖一致性
-    combined_edges, _ = torch.sort(combined_edges, dim=0)
-    combined_edges = torch.unique(combined_edges, dim=1)
+    # 修改：在 dimension 0 拼接，因為邊的數量(rows)不同，但特徵維度(cols=2)相同
+    combined_edges = torch.cat([sim_edges, com_edges], dim=0) 
 
-    # 3. 建立唯一的合併拉普拉斯矩陣 (取代原本的兩個)
+    # 2. 移除重複的邊
+    # 由於你的預處理腳本已經確保了 u < v，我們直接針對 rows 進行 unique 即可
+    combined_edges = torch.unique(combined_edges, dim=0)
+
+    # 3. [關鍵] 轉置為 [2, E] 格式
+    # 因為你後續呼叫的 create_laplacian 函數預期格式為 [2, num_edges]
+    combined_edges = combined_edges.t() 
+
+    # 4. 建立合併拉普拉斯矩陣
     combined_laplacian = create_laplacian(combined_edges, num_items).to(device)
     print(f"Graph merged: Total Unique Edges({combined_edges.shape[1]})")
     
@@ -251,6 +258,10 @@ def main():
 
                 # 5. 執行反向傳播與優化
                 total_final_loss.backward()
+                
+                # [新增] 梯度裁剪：將所有參數的梯度範數限制在 5.0 以內
+                torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=5.0)
+                
                 optimizer.step()
                 
                 # 累計損失與各項分數
