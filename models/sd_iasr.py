@@ -60,12 +60,14 @@ class SDIASR(nn.Module):
             dropout=dropout
         )
         
+        # --- [新增這一行] ---
+        self.layer_norm = nn.LayerNorm(emb_dim)  # 用於穩定譜解耦後的特徵
+        
         # === 4. 使用者意圖預測模組 === (Intent-Aware Prediction)
         self.predictor = IntentPredictor(emb_dim, dropout=dropout)
         self.dropout = nn.Dropout(dropout) # <--- [新增] 定義一個全域 dropout 層
         
-        # --- [新增這一行] ---
-        self.layer_norm = nn.LayerNorm(emb_dim)  # 用於穩定譜解耦後的特徵
+        
 
     def forward(self, seq_indices, time_indices, target_indices, sim_laplacian, com_laplacian):
         """

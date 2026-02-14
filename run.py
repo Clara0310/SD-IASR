@@ -123,22 +123,18 @@ def main():
     #com_laplacian = create_laplacian(raw_data['com_edge_index'], num_items).to(device)
     # --- [替換為以下程式碼] ---
     # --- [正確的合併邏輯] ---
-    # 1. 取得兩組邊的聯集 (目前的格式是 [E, 2])
-    sim_edges = torch.tensor(raw_data['sim_edge_index']) # [451949, 2]
-    com_edges = torch.tensor(raw_data['com_edge_index']) # [749935, 2]
+   # 1. 取得兩組邊 (原始格式為 [E, 2])
+    sim_edges = torch.tensor(raw_data['sim_edge_index']) # 例如 [451949, 2]
+    com_edges = torch.tensor(raw_data['com_edge_index']) # 例如 [749935, 2]
 
-    # 修改：在 dimension 0 拼接，因為邊的數量(rows)不同，但特徵維度(cols=2)相同
+    # [關鍵修正] 在 dim=0 拼接（垂直疊加邊的清單），並在 dim=0 去重
     combined_edges = torch.cat([sim_edges, com_edges], dim=0) 
-
-    # 2. 移除重複的邊
-    # 由於你的預處理腳本已經確保了 u < v，我們直接針對 rows 進行 unique 即可
     combined_edges = torch.unique(combined_edges, dim=0)
 
-    # 3. [關鍵] 轉置為 [2, E] 格式
-    # 因為你後續呼叫的 create_laplacian 函數預期格式為 [2, num_edges]
+    # [關鍵修正] 轉置為 [2, E] 格式，以符合 create_laplacian 的預期
     combined_edges = combined_edges.t() 
 
-    # 4. 建立合併拉普拉斯矩陣
+    # 建立合併拉普拉斯矩陣
     combined_laplacian = create_laplacian(combined_edges, num_items).to(device)
     print(f"Graph merged: Total Unique Edges({combined_edges.shape[1]})")
     
