@@ -63,6 +63,9 @@ class SDIASR(nn.Module):
         # === 4. 使用者意圖預測模組 === (Intent-Aware Prediction)
         self.predictor = IntentPredictor(emb_dim, dropout=dropout)
         self.dropout = nn.Dropout(dropout) # <--- [新增] 定義一個全域 dropout 層
+        
+        # --- [新增這一行] ---
+        self.layer_norm = nn.LayerNorm(emb_dim)  # 用於穩定譜解耦後的特徵
 
     def forward(self, seq_indices, time_indices, target_indices, sim_laplacian, com_laplacian):
         """
@@ -83,6 +86,10 @@ class SDIASR(nn.Module):
         
         # B. 執行譜解耦：生成相似性特徵 X_sim 與 互補性特徵 X_cor
         x_sim, x_cor = self.spectral_disentangler(initial_embs, sim_laplacian, com_laplacian)
+        
+        # --- [新增以下兩行] ---
+        x_sim = self.layer_norm(x_sim)
+        x_cor = self.layer_norm(x_cor)
         
         # === [新增] 計算兩個空間的特徵相似度 (診斷點 2) ===
         # 我們想知道譜解耦後，兩個矩陣是否分得很開
@@ -202,7 +209,9 @@ class SDIASR(nn.Module):
         # [Num_Items, Dim]
         x_sim, x_cor = self.spectral_disentangler(initial_embs, sim_laplacian, com_laplacian)
     
-        
+        # --- [新增以下兩行] ---
+        x_sim = self.layer_norm(x_sim)
+        x_cor = self.layer_norm(x_cor)
         
         # 3. 取得序列特徵 & User Intent
         # 這裡會從 x_sim 查表拿出序列裡的商品特徵

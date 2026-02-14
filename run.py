@@ -247,7 +247,9 @@ def main():
                 # 3. [關鍵新增] 商品層級解耦損失 (Item-level Disentangle Loss)
                 # 我們希望所有商品的相似嵌入與互補嵌入越不一樣越好
                 # 使用餘弦相似度的絕對值均值作為懲罰
-                item_diff_loss = torch.mean(torch.abs(F.cosine_similarity(x_sim, x_cor, dim=-1)))
+                #item_diff_loss = torch.mean(torch.abs(F.cosine_similarity(x_sim, x_cor, dim=-1)))
+                # --- [修改這一行，加入 eps=1e-8] ---
+                item_diff_loss = torch.mean(torch.abs(F.cosine_similarity(x_sim, x_cor, dim=-1, eps=1e-8)))
 
                 # 4. 融合最終損失
                 # 將解耦權重從 0.1 降至 0.01 (降一個數量級)
