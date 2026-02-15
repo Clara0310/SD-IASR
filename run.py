@@ -61,6 +61,8 @@ def main():
     
     # 續跑功能開關
     parser.add_argument('--resume', action='store_true', help='是否從上次的最佳權重續跑')
+    # [新增] 續跑模式專用的模型路徑
+    parser.add_argument('--resume_path', type=str, default=None, help='續跑模式下，指定要載入的模型路徑 (.pth)')
     
     # [新增] 測試模式專用參數
     parser.add_argument('--test_only', action='store_true', help='只執行測試，跳過訓練')
@@ -210,11 +212,18 @@ def main():
     #model_save_path = os.path.join(checkpoint_dir, "best_model.pth")
     
     # --- 續跑邏輯 (Resume Logic) ---
-    if args.resume and os.path.exists(model_save_path):
-        print(f"找到現有權重，正在從 {model_save_path} 載入並續跑...")
-        checkpoint = torch.load(model_save_path)
+    # --- 續跑邏輯 (修正版：支援手動路徑) ---
+    # 優先檢查是否有提供手動路徑，如果沒有再找當前資料夾 (雖然當前資料夾通常是空的)
+    load_resume_path = args.resume_path if args.resume_path else model_save_path
+
+    if args.resume and load_resume_path and os.path.exists(load_resume_path):
+        print(f"找到現有權重，正在從 {load_resume_path} 載入並續跑...")
+        checkpoint = torch.load(load_resume_path)
         model.load_state_dict(checkpoint)
         print("權重載入成功！")
+    elif args.resume:
+        print(f"警告：設定了 --resume 但找不到模型檔案 {load_resume_path}，將從頭開始訓練。")
+    # ----------------------------------
     # ----------------------------------
 
     
