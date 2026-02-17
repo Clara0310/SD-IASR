@@ -10,6 +10,7 @@ class SDIASR(nn.Module):
         super(SDIASR, self).__init__()
         self.item_num = item_num
         self.emb_dim = emb_dim
+        self.gamma = gamma
         
         
         # === 1. 修改：多特徵融合初始嵌入層 (Multi-View Feature Fusion) ===
