@@ -83,7 +83,7 @@ class SequentialDataset(Dataset):
             # 訓練集維持原樣 (含負樣本)
             target_items = np.array(line[2:], dtype=np.int64)
         
-        return torch.LongTensor(seq), torch.LongTensor(time_seq), torch.LongTensor(target_items)
+        return torch.LongTensor(seq), torch.LongTensor(time_seq), torch.LongTensor(target_items), index
     
 def get_loader(dataset_path, batch_size, max_len):
     """載入 7_dataset_split.py 產出的 .npz 打包數據"""

@@ -332,7 +332,19 @@ def main():
                     
                     # 3. Masking (屏蔽歷史購買過的商品)
                     # 這些商品的分數設為 -inf，讓它們排在最後面，不影響排名
-                    scores.scatter_(1, seqs, -float('inf'))
+                    #scores.scatter_(1, seqs, -float('inf'))
+                    # --- [取代原本的 Masking 邏輯] ---
+                    # 3. 全歷史 Masking
+                    for b_idx in range(scores.size(0)):
+                        # 取得該樣本在原始 val_set 中的索引
+                        idx_in_set = batch_indices[b_idx].item()
+                        # 從 raw_data 獲取完整歷史 (val_set 的第 0 欄)
+                        full_history = raw_data['val_set'][idx_in_set][0]
+                        scores[b_idx, full_history] = -float('inf')
+                    # -------------------------------
+                    
+                    
+                    
                     
                     # 3.1 [修正] 把正確答案的分數「救回來」！
                     # 如果正確答案在 seqs 裡，它剛剛被誤殺了，現在我們把它還原
@@ -423,9 +435,22 @@ def main():
             # gather 需要 index 維度一致，所以 unsqueeze
             pos_scores = scores.gather(1, target_pos.unsqueeze(1)) # [Batch, 1]
             
+            
             # 3. Masking (屏蔽歷史購買過的商品)
             # 將歷史商品的 index 設為負無限大，讓它們排在最後面
-            scores.scatter_(1, seqs, -float('inf'))
+            #scores.scatter_(1, seqs, -float('inf'))
+            # --- [取代原本的 Masking 邏輯] ---
+            # 3. 全歷史 Masking
+            for b_idx in range(scores.size(0)):
+                # 取得該樣本在原始 test_set 中的索引
+                idx_in_set = batch_indices[b_idx].item()
+                # 從 raw_data 獲取完整歷史 (test_set 的第 0 欄)
+                full_history = raw_data['test_set'][idx_in_set][0]
+                scores[b_idx, full_history] = -float('inf')
+            # -------------------------------
+            
+            
+            
             
             # 3.1. [修正] 把正確答案的分數「救回來」！
             # 如果正確答案在 seqs 裡，它剛剛被誤殺了，現在我們把它還原
