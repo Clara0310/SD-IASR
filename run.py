@@ -317,6 +317,9 @@ def main():
             val_hr_10 = []
             val_ndcg_10 = []
             with torch.no_grad():
+                # [關鍵優化] 進入 Batch 迴圈前先算好一次就好！
+                x_sim_all, x_cor_all = model.get_all_item_features(adj_self, adj_dele)
+                
                 for seqs, times, targets, batch_indices in tqdm(val_loader, desc=f"Epoch {epoch} Validating"):
                     seqs, times, targets = seqs.to(device), times.to(device), targets.to(device)
                     
@@ -325,7 +328,11 @@ def main():
                     
                     # 1. 算出所有商品的分數 [Batch, Num_Items]
                     #scores = model.predict_full(seqs, times, sim_laplacian, com_laplacian)
-                    scores = model.predict_full(seqs, times, adj_self, adj_dele)
+                    #scores = model.predict_full(seqs, times, adj_self, adj_dele)
+                    # 改呼叫 fast 版本，傳入緩存的特徵
+                    scores = model.predict_full_fast(seqs, times, x_sim_all, x_cor_all)
+                    
+                    
                     # 2. 取得正確答案的分數
                     # gather 需要 index 維度一致，所以 unsqueeze
                     pos_scores = scores.gather(1, target_pos.unsqueeze(1)) # [Batch, 1]

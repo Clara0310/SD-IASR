@@ -245,3 +245,22 @@ class SDIASR(nn.Module):
         scores = self.predictor.forward_full(sim_intents, cor_intents, x_sim, x_cor)
         
         return scores # 回傳 [Batch, Num_Items]
+    
+    
+    # 新增：一次性取得所有商品特徵
+    def get_all_item_features(self, adj_self, adj_dele):
+        all_item_indices = torch.arange(self.item_num).to(adj_self.device)
+        initial_embs = self.item_embedding(all_item_indices)
+        initial_embs = self.dropout(initial_embs)
+        raw_sim, raw_cor = self.spectral_disentangler(initial_embs, adj_self, adj_dele)
+        x_sim = self.layer_norm(initial_embs + self.gamma * raw_sim)
+        x_cor = self.layer_norm(initial_embs + self.gamma * raw_cor)
+        return x_sim, x_cor
+
+    # 新增：接收算好的特徵進行預測
+    def predict_full_fast(self, seq_indices, time_indices, x_sim, x_cor):
+        seq_sim_embs = F.embedding(seq_indices, x_sim)
+        seq_cor_embs = F.embedding(seq_indices, x_cor)
+        mask = (seq_indices == 0)
+        sim_intents, cor_intents = self.sequential_encoder(seq_sim_embs, seq_cor_embs, time_indices, mask)
+        return self.predictor.forward_full(sim_intents, cor_intents, x_sim, x_cor)
