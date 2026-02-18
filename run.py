@@ -317,7 +317,7 @@ def main():
             val_hr_10 = []
             val_ndcg_10 = []
             with torch.no_grad():
-                for seqs, times, targets in tqdm(val_loader, desc=f"Epoch {epoch} Validating"):
+                for seqs, times, targets, batch_indices in tqdm(val_loader, desc=f"Epoch {epoch} Validating"):
                     seqs, times, targets = seqs.to(device), times.to(device), targets.to(device)
                     
                     # targets 現在只有 [Batch, 1]，就是正確答案
@@ -418,7 +418,7 @@ def main():
     test_hr_20, test_ndcg_20 = [], []
     
     with torch.no_grad():
-        for seqs, times, targets in tqdm(test_loader, desc="Testing"):
+        for seqs, times, targets, batch_indices in tqdm(test_loader, desc="Testing"):
             seqs, times, targets = seqs.to(device), times.to(device), targets.to(device)
             
             # targets 在全排名模式下只有 [Batch, 1]，就是正確答案
