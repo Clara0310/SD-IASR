@@ -45,27 +45,48 @@ class SpectralConv(nn.Module):
     
     
     def forward(self, x, adj_self, adj_dele, filter_type='low'):
-        # 1. 移除 Identity，Spectral Layer 只提取圖特徵
         
         if filter_type == 'low':
-            # 低通邏輯：0.5 * (A + I)
-            conv_op = 0.5 * adj_self
-            out = torch.spmm(conv_op, x)
+            # 不要預算矩陣，改用鏈式乘法：(Adj * (Adj * X))
+            out = torch.spmm(adj_self, x) * 0.5
             for _ in range(self.prop_step - 1):
-                out = torch.spmm(conv_op, out)
-            
-            # 先聚合再乘權重
+                out = torch.spmm(adj_self, out) * 0.5
             return torch.matmul(out, self.weight)
 
         elif filter_type == 'mid':
-            # 中通邏輯：-(A + I) * (A - I)
-            # 這是產生「物理排斥力」的關鍵，能強烈推開相似性
-            conv_op = -torch.spmm(adj_self, adj_dele)
-            out = torch.spmm(conv_op, x)
+            # 核心優化：- (A_self * (A_dele * X))
+            out = torch.spmm(adj_dele, x)
+            out = -torch.spmm(adj_self, out)
             for _ in range(self.prop_step - 1):
-                out = torch.spmm(conv_op, out)
-                
+                out = torch.spmm(adj_dele, out)
+                out = -torch.spmm(adj_self, out)
             return torch.matmul(out, self.weight)
+        
+        
+        
+        
+        
+        # 1. 移除 Identity，Spectral Layer 只提取圖特徵
+        
+        # if filter_type == 'low':
+        #     # 低通邏輯：0.5 * (A + I)
+        #     conv_op = 0.5 * adj_self
+        #     out = torch.spmm(conv_op, x)
+        #     for _ in range(self.prop_step - 1):
+        #         out = torch.spmm(conv_op, out)
+            
+        #     # 先聚合再乘權重
+        #     return torch.matmul(out, self.weight)
+
+        # elif filter_type == 'mid':
+        #     # 中通邏輯：-(A + I) * (A - I)
+        #     # 這是產生「物理排斥力」的關鍵，能強烈推開相似性
+        #     conv_op = -torch.spmm(adj_self, adj_dele)
+        #     out = torch.spmm(conv_op, x)
+        #     for _ in range(self.prop_step - 1):
+        #         out = torch.spmm(conv_op, out)
+                
+        #     return torch.matmul(out, self.weight)
 
     # def forward(self, x, laplacian, filter_type='low'):
     #     """

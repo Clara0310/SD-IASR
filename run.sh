@@ -27,8 +27,8 @@ MAX_SEQ_LEN=50
 
 # 3. SD-IASR 核心解耦參數
 # low_k 與 mid_k 控制圖譜濾波器的傳播步數
-LOW_K=1 #2  ，增加低頻傳播步數以捕捉更多鄰居資訊
-MID_K=1 #2  ，增加中頻傳播步數以捕捉更多鄰居資訊
+LOW_K=5 #2  ，增加低頻傳播步數以捕捉更多鄰居資訊
+MID_K=5 #2  ，增加中頻傳播步數以捕捉更多鄰居資訊
 
 # Transformer 相關參數
 LAYERS=2      # 增加 Transformer 深度
@@ -41,11 +41,11 @@ LR_PATIENCE=25     # 這是排程器的耐心值（例如 15 次沒進步就降�
 
 # loss 權重參數
 LAMBDA_1=1.0
-LAMBDA_2=1.5
+LAMBDA_2=1.0
 LAMBDA_3=0.001 # 提高 Weight Decay 正則化 (從 0.001 提升至 0.01)
 
-LAMBDA_DIFF=0.05   # 階段十二建議的黃金分割點
-GAMMA=0.15          # 稍微回升一點圖信號
+LAMBDA_DIFF=0.05   # 商品層級解耦損失（Item-level Disentangle Loss）的權重係數
+GAMMA=0.15          # 圖信號
 
 
 # 提高 Dropout (從 0.2 提升至 0.3)
