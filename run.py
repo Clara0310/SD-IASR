@@ -425,6 +425,9 @@ def main():
     test_hr_20, test_ndcg_20 = [], []
     
     with torch.no_grad():
+        # [新增] 迴圈外先預計算一次
+        x_sim_all, x_cor_all = model.get_all_item_features(adj_self, adj_dele)
+        
         for seqs, times, targets, batch_indices in tqdm(test_loader, desc="Testing"):
             seqs, times, targets = seqs.to(device), times.to(device), targets.to(device)
             
@@ -437,7 +440,11 @@ def main():
             # 1. [關鍵] 呼叫 predict_full 算出所有商品的分數 [Batch, Num_Items]
             # 確保你在 models/sd_iasr.py 裡已經加入了 predict_full 方法
             #scores = model.predict_full(seqs, times, sim_laplacian, com_laplacian)
-            scores = model.predict_full(seqs, times, adj_self, adj_dele)
+            # scores = model.predict_full(seqs, times, adj_self, adj_dele)
+            # [修改] 改呼叫快速版本
+            scores = model.predict_full_fast(seqs, times, x_sim_all, x_cor_all)
+            
+            
             # 2. 取得正確答案的分數
             # gather 需要 index 維度一致，所以 unsqueeze
             pos_scores = scores.gather(1, target_pos.unsqueeze(1)) # [Batch, 1]
