@@ -241,7 +241,7 @@ def main():
             
             
             pbar = tqdm(train_loader, desc=f"Epoch {epoch} Training")
-            for seqs, times, targets in pbar:
+            for seqs, times, targets, _ in pbar:
                 seqs, times, targets = seqs.to(device), times.to(device), targets.to(device)
                 
                 optimizer.zero_grad()
