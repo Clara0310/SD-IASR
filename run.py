@@ -105,8 +105,32 @@ def main():
     # 3. 載入資料與預處理圖結構
     data_path = f"./data_preprocess/processed/{args.dataset}.npz"
     train_loader, val_loader, test_loader, raw_data = get_loader(data_path, args.batch_size, args.max_seq_len)
-    
     num_items = raw_data['features'].shape[0]
+    
+    
+    
+    #==================================================================================
+    # 1. 預先將驗證集與測試集的全歷史轉為矩陣 (加上 Padding)
+    def prepare_history_matrix(data_list, max_len=2000): # max_len 視資料集歷史長度而定
+        matrix = []
+        for item in data_list:
+            hist = list(item[0]) # 取得該使用者的全歷史
+            if len(hist) > max_len:
+                hist = hist[-max_len:]
+            else:
+                hist = hist + [0] * (max_len - len(hist)) # Padding
+            matrix.append(hist)
+        return torch.LongTensor(matrix)
+
+    print("Preparing Full History Masking Matrices...")
+    val_history_matrix = prepare_history_matrix(raw_data['val_set']).to(device)
+    test_history_matrix = prepare_history_matrix(raw_data['test_set']).to(device)
+    #==================================================================================
+    
+    
+    
+    
+  
     
     # === 新增：價格特徵處理 (參考 SR-Rec) ===
     # 原始 features 結構: [cid2, cid3, price]
@@ -342,13 +366,19 @@ def main():
                     #scores.scatter_(1, seqs, -float('inf'))
                     # --- [取代原本的 Masking 邏輯] ---
                     # 3. 全歷史 Masking
-                    for b_idx in range(scores.size(0)):
-                        # 取得該樣本在原始 val_set 中的索引
-                        idx_in_set = batch_indices[b_idx].item()
-                        # 從 raw_data 獲取完整歷史 (val_set 的第 0 欄)
-                        full_history = raw_data['val_set'][idx_in_set][0]
-                        scores[b_idx, full_history] = -float('inf')
+                    # for b_idx in range(scores.size(0)):
+                    #     # 取得該樣本在原始 val_set 中的索引
+                    #     idx_in_set = batch_indices[b_idx].item()
+                    #     # 從 raw_data 獲取完整歷史 (val_set 的第 0 欄)
+                    #     full_history = raw_data['val_set'][idx_in_set][0]
+                    #     scores[b_idx, full_history] = -float('inf')
                     # -------------------------------
+                    # --- [核心優化：全歷史 Masking 一行搞定] ---
+                    # 取得這一個 batch 對應的全歷史張量
+                    batch_hist = val_history_matrix[batch_indices] 
+                    # GPU 平行寫入 -inf
+                    scores.scatter_(1, batch_hist, -float('inf')) 
+                    # ------------------------------------------
                     
                     
                     
@@ -455,14 +485,17 @@ def main():
             #scores.scatter_(1, seqs, -float('inf'))
             # --- [取代原本的 Masking 邏輯] ---
             # 3. 全歷史 Masking
-            for b_idx in range(scores.size(0)):
-                # 取得該樣本在原始 test_set 中的索引
-                idx_in_set = batch_indices[b_idx].item()
-                # 從 raw_data 獲取完整歷史 (test_set 的第 0 欄)
-                full_history = raw_data['test_set'][idx_in_set][0]
-                scores[b_idx, full_history] = -float('inf')
+            # for b_idx in range(scores.size(0)):
+            #     # 取得該樣本在原始 test_set 中的索引
+            #     idx_in_set = batch_indices[b_idx].item()
+            #     # 從 raw_data 獲取完整歷史 (test_set 的第 0 欄)
+            #     full_history = raw_data['test_set'][idx_in_set][0]
+            #     scores[b_idx, full_history] = -float('inf')
             # -------------------------------
-            
+            # --- [全歷史 Masking 優化] ---
+            batch_hist = test_history_matrix[batch_indices]
+            scores.scatter_(1, batch_hist, -float('inf'))
+            # ----------------------------
             
             
             
