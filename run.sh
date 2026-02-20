@@ -43,13 +43,15 @@ LR_PATIENCE=25     # 這是排程器的耐心值（例如 15 次沒進步就降�
 LAMBDA_1=1.0
 LAMBDA_2=1.5 #互補損失比重
 LAMBDA_3=0.001 # 提高 Weight Decay 正則化 (從 0.001 提升至 0.01)
+LAMBDA_CL=0.1 # 對比學習損失權重
+TAU=0.2       # 對比學習溫度參數
 
 LAMBDA_DIFF=0.01   # 商品層級解耦損失（Item-level Disentangle Loss）的權重係數
-GAMMA=0.05          # 圖信號
+GAMMA=0.1          # 圖信號
 
 
 # 提高 Dropout (從 0.2 提升至 0.3)
-DROPOUT=0.35 
+DROPOUT=0.1
 
 # 4. 執行訓練指令
 # 移除了 ALPHA，並加入了 --resume 續跑與 --max_seq_len 參數
@@ -74,6 +76,8 @@ python run.py \
     --lambda_1 $LAMBDA_1 \
     --lambda_2 $LAMBDA_2 \
     --lambda_3 $LAMBDA_3 \
+    --lambda_cl $LAMBDA_CL \
+    --tau $TAU \
     --dropout $DROPOUT \
     --gpu 0 \
     "$@" #彈性接收指令的參數（ex. resume or not）

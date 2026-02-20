@@ -68,6 +68,11 @@ def main():
     parser.add_argument('--test_only', action='store_true', help='只執行測試，跳過訓練')
     parser.add_argument('--checkpoint_path', type=str, default=None, help='測試模式下，指定要載入的模型路徑 (.pth)')
     
+    parser.add_argument('--lambda_cl', type=float, default=0.1, help='Weight for Contrastive Learning')
+    parser.add_argument('--tau', type=float, default=0.2, help='Temperature for CL')
+    
+    
+    
     args = parser.parse_args()
     
     # 建立時間標記字串
@@ -215,7 +220,9 @@ def main():
     criterion = SDIASRLoss(
         lambda_1=args.lambda_1, 
         lambda_2=args.lambda_2,
-        lambda_reg=args.lambda_3
+        lambda_reg=args.lambda_3,
+        lambda_cl=args.lambda_cl, # 傳入新參數
+        tau=args.tau
     )
     
     optimizer = optim.Adam(model.parameters(), lr=args.lr)
@@ -257,7 +264,7 @@ def main():
         
         for epoch in range(start_epoch, args.epochs):
             model.train()
-            total_loss, total_l_seq, total_l_sim, total_l_rel = 0, 0, 0, 0 # 新增各項累計
+            total_loss, total_l_seq, total_l_sim, total_l_rel, total_l_cl = 0, 0, 0, 0, 0
             total_alpha = 0     # [新增] 初始化 alpha 累加器
             total_feat_sim = 0  # [新增] 初始化特徵相似度累加器
             total_item_diff_loss = 0  # [新增] 初始化意圖差異損失累加器
@@ -284,27 +291,12 @@ def main():
                 
                 # 1. 直接從 model 回傳值中拆解出所有變數
                 outputs = model(seqs, times, targets, adj_self, adj_dele)
-                scores, alpha, sim_scores, rel_scores, feat_sim, u_sim_att, u_cor_att, x_sim, x_cor = outputs
-
-                # 2. 計算損失（使用 model 產生的各項分數）
-                loss, l_seq, l_sim, l_rel = criterion(scores, sim_scores, rel_scores, model)
+                scores, alpha, sim_scores, rel_scores, feat_sim, u_sim, u_cor, x_sim, x_cor = outputs
                 
+                # 2. 計算新 Loss (包含 CL)
+                loss, l_seq, l_sim, l_rel, l_cl = criterion(scores, sim_scores, rel_scores, u_sim, u_cor, model)
 
-                # 3. [關鍵新增] 商品層級解耦損失 (Item-level Disentangle Loss)
-                # 我們希望所有商品的相似嵌入與互補嵌入越不一樣越好
-                # 使用餘弦相似度的絕對值均值作為懲罰
-                #item_diff_loss = torch.mean(torch.abs(F.cosine_similarity(x_sim, x_cor, dim=-1)))
-                # --- [修改這一行，加入 eps=1e-8] ---
-                item_diff_loss = torch.mean(torch.abs(F.cosine_similarity(x_sim, x_cor, dim=-1, eps=1e-8)))
-
-                # 4. 融合最終損失
-                # 將解耦權重從 0.1 降至 0.01 (降一個數量級)
-                #total_final_loss = loss + 0.15 * item_diff_loss
-                # [修改] 使用 args.lambda_diff 取代硬編碼的 0.01
-                total_final_loss = loss + args.lambda_diff * item_diff_loss
-
-                # 5. 執行反向傳播與優化
-                total_final_loss.backward()
+                loss.backward()
                 
                 # [新增] 梯度裁剪：將所有參數的梯度範數限制在 5.0 以內
                 torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=5.0)
@@ -316,6 +308,7 @@ def main():
                 total_l_seq += l_seq.item()
                 total_l_sim += l_sim.item()
                 total_l_rel += l_rel.item()
+                total_l_cl += l_cl.item()
                 # [新增] 累計監控數值
                 total_alpha += alpha.mean().item()  # 紀錄 Alpha 均值
                 total_feat_sim += feat_sim.item()   # 紀錄特徵相似度
@@ -330,6 +323,7 @@ def main():
             avg_l_seq = total_l_seq / num_batches
             avg_l_sim = total_l_sim / num_batches
             avg_l_rel = total_l_rel / num_batches
+            avg_l_cl = total_l_cl / num_batches
             
             avg_alpha = total_alpha / len(train_loader)
             avg_feat_sim = total_feat_sim / len(train_loader)
@@ -409,7 +403,7 @@ def main():
             current_lr = optimizer.param_groups[0]['lr']
             
             # --- 完整印出所有指標 ---
-            print(f"Epoch {epoch} | TotalLoss: {avg_loss:.4f} | L_seq: {avg_l_seq:.4f} | L_sim: {avg_l_sim:.4f} | L_rel: {avg_l_rel:.4f}| Item_Diff_Loss: {avg_item_diff_loss:.4f} | Alpha: {avg_alpha:.4f} | Feat_Sim: {avg_feat_sim:.4f}")
+            print(f"Epoch {epoch} | TotalLoss: {avg_loss:.4f} | L_seq: {avg_l_seq:.4f} | L_sim: {avg_l_sim:.4f} | L_rel: {avg_l_rel:.4f} | L_cl: {avg_l_cl:.4f} | Alpha: {avg_alpha:.4f} | Feat_Sim: {avg_feat_sim:.4f}")
             print(f"Val HR@10: {avg_hr:.4f} | Val NDCG@10: {avg_ndcg:.4f} | Current LR: {current_lr}")        
             
             # 執行學習率調整：根據目前的 avg_hr 判斷是否需要降速
