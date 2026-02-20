@@ -312,7 +312,7 @@ def main():
                 # [新增] 累計監控數值
                 total_alpha += alpha.mean().item()  # 紀錄 Alpha 均值
                 total_feat_sim += feat_sim.item()   # 紀錄特徵相似度
-                total_item_diff_loss += item_diff_loss.item() # 紀錄意圖差異損失
+                total_item_diff_loss += l_cl.item()  # 紀錄對比損失
                 
                 
                 pbar.set_postfix({"loss": f"{loss.item():.4f}", "alpha": f"{alpha.mean().item():.3f}"})
@@ -328,7 +328,7 @@ def main():
             avg_alpha = total_alpha / len(train_loader)
             avg_feat_sim = total_feat_sim / len(train_loader)
             
-            avg_item_diff_loss = total_item_diff_loss / len(train_loader)
+            avg_cl_loss = total_l_cl / len(train_loader)
 
             # 驗證階段
             model.eval()

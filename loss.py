@@ -7,7 +7,7 @@ class SDIASRLoss(nn.Module):
     SD-IASR 專用損失函數模組
     包含 BPR 推薦損失與權重正則化。
     """
-    def __init__(self, lambda_1=1.0, lambda_2=1.0, lambda_reg=0.01,, lambda_cl=0.1, tau=0.2):
+    def __init__(self, lambda_1=1.0, lambda_2=1.0, lambda_reg=0.01, lambda_cl=0.1, tau=0.2):
         super(SDIASRLoss, self).__init__()
         self.lambda_1 = lambda_1
         self.lambda_2 = lambda_2
