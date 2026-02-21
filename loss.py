@@ -13,6 +13,7 @@ class SDIASRLoss(nn.Module):
         self.lambda_2 = lambda_2
         self.lambda_reg = lambda_reg
         self.lambda_cl = lambda_cl # 對比學習權重
+        self.lambda_proto = lambda_proto # [新增] 原型損失權重
         self.tau = tau             # 溫度參數
 
     def bpr_loss(self, scores):
@@ -44,7 +45,21 @@ class SDIASRLoss(nn.Module):
         cl_loss = -torch.log(torch.exp(pos_score) / exp_all_score)
         return cl_loss.mean()
 
-    def forward(self, scores, sim_scores, rel_scores, u_sim, u_cor, model):
+    # [核心新增] 意圖-原型對齊損失 (BARec 風格)
+    def calculate_proto_loss(self, proto_scores):
+        """
+        將 User Intent 分配到最接近的原型中心。
+        這是一個聚類任務，強迫相似意圖的人聚集在一起。
+        """
+        # 使用 Cross-Entropy 讓意圖更明確地歸屬於某個中心
+        # 這裡我們不使用標籤，而是最大化分配的熵 (Entropy Minimization)
+        probs = F.softmax(proto_scores / self.tau, dim=-1)
+        log_probs = F.log_softmax(proto_scores / self.tau, dim=-1)
+        # 最小化信息熵，使分配更「尖銳」
+        loss = -torch.mean(torch.sum(probs * log_probs, dim=-1))
+        return loss
+
+    def forward(self, scores, sim_scores, rel_scores, p_sim_s, p_cor_s, u_sim, u_cor, model):
         # 1. 序列推薦 Loss (BPR)
         l_seq = -torch.mean(torch.log(torch.sigmoid(scores[:, 0].unsqueeze(1) - scores[:, 1:])))
         l_sim = -torch.mean(torch.log(torch.sigmoid(sim_scores[:, 0].unsqueeze(1) - sim_scores[:, 1:])))
@@ -58,9 +73,13 @@ class SDIASRLoss(nn.Module):
         # 3. [核心新增] 意圖層級對比學習
         l_cl = self.calculate_cl_loss(u_sim, u_cor)
         
-        # 最終組合：移除 Item_Diff_Loss
+        # 4. [核心新增] 原型聚類損失
+        l_proto = self.calculate_proto_loss(p_sim_s) + self.calculate_proto_loss(p_cor_s)
+        
+        # 最終組合：加入 lambda_proto * l_proto
         total_loss = (l_seq + self.lambda_1 * l_sim + self.lambda_2 * l_rel) + \
                      self.lambda_reg * reg_loss + \
-                     self.lambda_cl * l_cl
+                     self.lambda_cl * l_cl + \
+                     self.lambda_proto * l_proto
                      
-        return total_loss, l_seq, l_sim, l_rel, l_cl
+        return total_loss, l_seq, l_sim, l_rel, l_cl, l_proto

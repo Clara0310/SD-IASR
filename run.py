@@ -71,7 +71,8 @@ def main():
     parser.add_argument('--lambda_cl', type=float, default=0.1, help='Weight for Contrastive Learning')
     parser.add_argument('--tau', type=float, default=0.2, help='Temperature for CL')
     
-    
+    parser.add_argument('--num_prototypes', type=int, default=64, help='Number of global intent prototypes')
+    parser.add_argument('--lambda_proto', type=float, default=0.1, help='Weight for Prototype loss')
     
     args = parser.parse_args()
     
@@ -190,7 +191,8 @@ def main():
         num_layers=args.num_layers, # 傳入層數
         nhead=args.nhead ,          # 傳入頭數
         dropout=args.dropout ,       # 傳入 dropout
-        gamma=args.gamma
+        gamma=args.gamma , 
+        num_prototypes=args.num_prototypes
     ).to(device)
     
     # --- 新增：載入預訓練 BERT 嵌入的邏輯 ---
@@ -291,10 +293,9 @@ def main():
                 
                 # 1. 直接從 model 回傳值中拆解出所有變數
                 outputs = model(seqs, times, targets, adj_self, adj_dele)
-                scores, alpha, sim_scores, rel_scores, feat_sim, u_sim, u_cor, x_sim, x_cor = outputs
-                
+                scores, alpha, sim_scores, rel_scores, feat_sim, u_sim, u_cor, p_sim_s, p_cor_s = outputs
                 # 2. 計算新 Loss (包含 CL)
-                loss, l_seq, l_sim, l_rel, l_cl = criterion(scores, sim_scores, rel_scores, u_sim, u_cor, model)
+                loss, l_seq, l_sim, l_rel, l_cl, l_proto = criterion(scores, sim_scores, rel_scores, u_sim, u_cor, p_sim_s, p_cor_s, model)
 
                 loss.backward()
                 

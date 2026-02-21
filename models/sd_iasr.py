@@ -6,7 +6,7 @@ from models.sequential_encoder import SequentialEncoder
 from models.intent_predictor import IntentPredictor
 
 class SDIASR(nn.Module):
-    def __init__(self, item_num, bert_dim, emb_dim, low_k, mid_k, max_seq_len, num_layers, nhead,dropout=0.1,gamma=0.1):
+    def __init__(self, item_num, bert_dim, emb_dim, low_k, mid_k, max_seq_len, num_layers, nhead,dropout=,gamma,num_prototypes):
         super(SDIASR, self).__init__()
         self.item_num = item_num
         self.emb_dim = emb_dim
@@ -77,6 +77,11 @@ class SDIASR(nn.Module):
         self.predictor = IntentPredictor(emb_dim, dropout=dropout)
         self.dropout = nn.Dropout(dropout) # <--- [新增] 定義一個全域 dropout 層
         
+        # [新增] 意圖原型矩陣：代表全域的潛在行為模式 (例如：購買咖啡的意圖、購買零食的意圖)
+        self.num_prototypes = num_prototypes
+        self.prototypes = nn.Parameter(torch.zeros(num_prototypes, emb_dim))
+        nn.init.xavier_uniform_(self.prototypes)
+        
         
 
     def forward(self, seq_indices, time_indices, target_indices, adj_self, adj_dele):
@@ -131,7 +136,13 @@ class SDIASR(nn.Module):
 
         # E. 雙通道序列編碼：捕捉近期與全局意圖
         sim_intents, cor_intents = self.sequential_encoder(seq_sim_embs, seq_cor_embs, time_indices, mask)
+        u_sim, u_cor = sim_intents[1], cor_intents[1] # 全局意圖向量
 
+        # [核心新增] 計算意圖與原型的相似度得分，供 Prototype CL Loss 使用
+        # 這裡計算 User Intent 到各個全域中心的投影
+        proto_sim_scores = torch.matmul(u_sim, self.prototypes.t()) # [Batch, Num_Prototypes]
+        proto_cor_scores = torch.matmul(u_cor, self.prototypes.t()) # [Batch, Num_Prototypes]
+        
         # F. 取得候選商品的特徵 (同樣經過譜解耦)
         target_sim_embs = F.embedding(target_indices, x_sim) # [batch, 1+neg, emb_dim]
         target_cor_embs = F.embedding(target_indices, x_cor)
@@ -140,16 +151,16 @@ class SDIASR(nn.Module):
         #target_embs = (target_sim_embs + target_cor_embs) / 2
 
         # G. 意圖預測與自適應融合
+        # scores, alpha, sim_scores, rel_scores = self.predictor(sim_intents, cor_intents, target_sim_embs, target_cor_embs)
         scores, alpha, sim_scores, rel_scores = self.predictor(sim_intents, cor_intents, target_sim_embs, target_cor_embs)
-
         # [修改回傳值] 加入兩個全局意圖向量 (u_sim_att, u_cor_att) 以供診斷與 Loss 使用
         u_sim_att = sim_intents[1]
         u_cor_att = cor_intents[1]
         
         # return scores, alpha, sim_scores, rel_scores, feat_sim, u_sim_att, u_cor_att,x_sim, x_cor
         # 回傳包含全局意圖向量 (sim_intents[1], cor_intents[1]) 供 CL Loss 使用
-        return scores, alpha, sim_scores, rel_scores, feat_sim, sim_intents[1], cor_intents[1], x_sim, x_cor
-    
+        return scores, alpha, sim_scores, rel_scores, feat_sim, u_sim, u_cor, proto_sim_scores, proto_cor_scores  
+      
     def load_pretrain_embedding(self, cid2_emb, cid3_emb, item_to_cid, item_to_price):
         
         # self.item_embedding.weight.data.copy_(torch.from_numpy(embedding_matrix))
