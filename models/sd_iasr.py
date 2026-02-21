@@ -6,7 +6,7 @@ from models.sequential_encoder import SequentialEncoder
 from models.intent_predictor import IntentPredictor
 
 class SDIASR(nn.Module):
-    def __init__(self, item_num, bert_dim, emb_dim, low_k, mid_k, max_seq_len, num_layers, nhead,dropout=,gamma,num_prototypes):
+    def __init__(self, item_num, bert_dim, emb_dim, low_k, mid_k, max_seq_len, num_layers, nhead,dropout , gamma, num_prototypes):
         super(SDIASR, self).__init__()
         self.item_num = item_num
         self.emb_dim = emb_dim
