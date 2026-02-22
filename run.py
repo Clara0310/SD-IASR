@@ -257,7 +257,7 @@ def main():
         
         for epoch in range(start_epoch, args.epochs):
             model.train()
-            total_loss, total_l_seq, total_l_sim, total_l_rel, total_l_cl = 0, 0, 0, 0, 0
+            total_loss, total_l_seq, total_l_sim, total_l_rel, total_l_cl ,total_proto_loss= 0, 0, 0, 0, 0, 0
             total_alpha = 0     # [新增] 初始化 alpha 累加器
             total_feat_sim = 0  # [新增] 初始化特徵相似度累加器
             total_item_diff_loss = 0  # [新增] 初始化意圖差異損失累加器
@@ -292,7 +292,7 @@ def main():
                 # [新增] 累計監控數值
                 total_alpha += alpha.mean().item()  # 紀錄 Alpha 均值
                 total_feat_sim += feat_sim.item()   # 紀錄特徵相似度
-                total_item_diff_loss += l_cl.item()  # 紀錄對比損失
+                #total_item_diff_loss += l_cl.item()  # 紀錄對比損失
                 total_proto_loss += l_proto.item() # 請確保你有定義 total_proto_loss
                 
                 
