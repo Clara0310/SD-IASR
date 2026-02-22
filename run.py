@@ -382,7 +382,7 @@ def main():
             current_lr = optimizer.param_groups[0]['lr']
             
             # --- 完整印出所有指標 ---
-            print(f"Epoch {epoch} | TotalLoss: {avg_loss:.4f} | L_seq: {avg_l_seq:.4f} | L_sim: {avg_l_sim:.4f} | L_rel: {avg_l_rel:.4f} | L_cl: {avg_l_cl:.4f} | Alpha: {avg_alpha:.4f} | Feat_Sim: {avg_feat_sim:.4f}")
+            print(f"Epoch {epoch} | TotalLoss: {avg_loss:.4f} | L_seq: {avg_l_seq:.4f} | L_cl: {avg_l_cl:.4f} | L_proto: {avg_cl_loss:.4f} | Alpha: {avg_alpha:.4f} | Feat_Sim: {avg_feat_sim:.4f}")            
             print(f"Val HR@10: {avg_hr:.4f} | Val NDCG@10: {avg_ndcg:.4f} | Current LR: {current_lr}")        
             
             # 執行學習率調整：根據目前的 avg_hr 判斷是否需要降速

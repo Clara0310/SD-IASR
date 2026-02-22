@@ -61,9 +61,9 @@ class SDIASRLoss(nn.Module):
 
     def forward(self, scores, sim_scores, rel_scores,u_sim, u_cor, p_sim_s, p_cor_s, model):
         # 1. 序列推薦 Loss (BPR)
-        l_seq = -torch.mean(torch.log(torch.sigmoid(scores[:, 0].unsqueeze(1) - scores[:, 1:])))
-        l_sim = -torch.mean(torch.log(torch.sigmoid(sim_scores[:, 0].unsqueeze(1) - sim_scores[:, 1:])))
-        l_rel = -torch.mean(torch.log(torch.sigmoid(rel_scores[:, 0].unsqueeze(1) - rel_scores[:, 1:])))
+        l_seq = -torch.mean(torch.log(torch.sigmoid(scores[:, 0].unsqueeze(1) - scores[:, 1:]) + 1e-10))
+        l_sim = -torch.mean(torch.log(torch.sigmoid(sim_scores[:, 0].unsqueeze(1) - sim_scores[:, 1:]) + 1e-10))
+        l_rel = -torch.mean(torch.log(torch.sigmoid(rel_scores[:, 0].unsqueeze(1) - rel_scores[:, 1:]) + 1e-10))
         
         # 2. 正則化
         reg_loss = 0
