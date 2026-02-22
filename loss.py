@@ -7,7 +7,7 @@ class SDIASRLoss(nn.Module):
     SD-IASR 專用損失函數模組
     包含 BPR 推薦損失與權重正則化。
     """
-    def __init__(self, lambda_1=1.0, lambda_2=1.0, lambda_reg=0.01, lambda_cl=0.1, lambda_proto=0.1, tau=0.2):
+    def __init__(self, lambda_1=2.0, lambda_2=2.0, lambda_reg=0.01, lambda_cl=0.05, lambda_proto=0.1, tau=0.1):
         super(SDIASRLoss, self).__init__()
         self.lambda_1 = lambda_1
         self.lambda_2 = lambda_2
@@ -70,10 +70,10 @@ class SDIASRLoss(nn.Module):
         for param in model.parameters():
             reg_loss += torch.norm(param, p=2)
             
-        # 3. [核心新增] 意圖層級對比學習
+        # 3. 意圖層級對比學習
         l_cl = self.calculate_cl_loss(u_sim, u_cor)
         
-        # 4. [核心新增] 原型聚類損失
+        # 4. 原型聚類損失
         l_proto = self.calculate_proto_loss(p_sim_s) + self.calculate_proto_loss(p_cor_s)
         
         # 最終組合：加入 lambda_proto * l_proto

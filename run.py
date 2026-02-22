@@ -42,15 +42,15 @@ def main():
     parser.add_argument('--nhead', type=int, default=8, help='Number of attention heads')
     
     #loss 權重參數
-    parser.add_argument('--lambda_1', type=float, default=1.0, help='Weight for similarity loss')
-    parser.add_argument('--lambda_2', type=float, default=1.0, help='Weight for complementarity loss')
+    parser.add_argument('--lambda_1', type=float, default=2.0, help='Weight for similarity loss')
+    parser.add_argument('--lambda_2', type=float, default=2.0, help='Weight for complementarity loss')
     parser.add_argument('--lambda_3', type=float, default=0.01, help='Regularization weight')
     
     parser.add_argument('--lambda_diff', type=float, default=0.03, help='Weight for item disentangle loss')
     parser.add_argument('--gamma', type=float, default=0.1, help='Spectral signal ratio')
     
     # 新增Dropout 參數
-    parser.add_argument('--dropout', type=float, default=0.1, help='Dropout rate')
+    parser.add_argument('--dropout', type=float, default=0.3, help='Dropout rate')
     
     parser.add_argument('--max_seq_len', type=int, default=50)
     
@@ -68,8 +68,8 @@ def main():
     parser.add_argument('--test_only', action='store_true', help='只執行測試，跳過訓練')
     parser.add_argument('--checkpoint_path', type=str, default=None, help='測試模式下，指定要載入的模型路徑 (.pth)')
     
-    parser.add_argument('--lambda_cl', type=float, default=0.1, help='Weight for Contrastive Learning')
-    parser.add_argument('--tau', type=float, default=0.2, help='Temperature for CL')
+    parser.add_argument('--lambda_cl', type=float, default=0.05, help='Weight for Contrastive Learning')
+    parser.add_argument('--tau', type=float, default=0.1, help='Temperature for CL')
     
     parser.add_argument('--num_prototypes', type=int, default=64, help='Number of global intent prototypes')
     parser.add_argument('--lambda_proto', type=float, default=0.1, help='Weight for Prototype loss')
@@ -155,29 +155,20 @@ def main():
     
     
     
-    #sim_laplacian = create_laplacian(raw_data['sim_edge_index'], num_items).to(device)
-    #com_laplacian = create_laplacian(raw_data['com_edge_index'], num_items).to(device)
-    # --- [替換為以下程式碼] ---
-    # --- [正確的合併邏輯] ---
+   
    # 1. 取得兩組邊 (原始格式為 [E, 2])
     sim_edges = torch.tensor(raw_data['sim_edge_index']) # 例如 [451949, 2]
     com_edges = torch.tensor(raw_data['com_edge_index']) # 例如 [749935, 2]
 
-    # [關鍵修正] 在 dim=0 拼接（垂直疊加邊的清單），並在 dim=0 去重
+    # 在 dim=0 拼接（垂直疊加邊的清單），並在 dim=0 去重
     combined_edges = torch.cat([sim_edges, com_edges], dim=0) 
     combined_edges = torch.unique(combined_edges, dim=0).t() # [加上 .t() 轉置]
 
-    #==============================================================================
-    # [關鍵修正] 轉置為 [2, E] 格式，以符合 create_laplacian 的預期
-    #combined_edges = combined_edges.t() 
-    # 建立合併拉普拉斯矩陣
-    #combined_laplacian = create_laplacian(combined_edges, num_items).to(device)
-    #print(f"Graph merged: Total Unique Edges({combined_edges.shape[1]})")
-    # [修改] 替換原有的 create_laplacian 呼叫
+    
+    # 替換原有的 create_laplacian 呼叫
     adj_self, adj_dele = create_sr_matrices(combined_edges, num_items)
     adj_self, adj_dele = adj_self.to(device), adj_dele.to(device)
     print(f"SR-Rec matrices generated: Self & Dele")
-    #==============================================================================
     
 
     # 4. 初始化模型與 Loss
@@ -195,7 +186,7 @@ def main():
         num_prototypes=args.num_prototypes
     ).to(device)
     
-    # --- 新增：載入預訓練 BERT 嵌入的邏輯 ---
+    # --- 載入預訓練 BERT 嵌入的邏輯 ---
     # 從 raw_data 提取商品與類別映射關係
     item_to_cid = {}
     for i in range(num_items):
@@ -218,7 +209,6 @@ def main():
     # ---------------------------------------
 
     # 這裡手動設定 lambda_1 和 lambda_2
-    #criterion = SDIASRLoss(lambda_reg=args.lambda_3)
     criterion = SDIASRLoss(
         lambda_1=args.lambda_1, 
         lambda_2=args.lambda_2,
@@ -278,18 +268,6 @@ def main():
                 seqs, times, targets = seqs.to(device), times.to(device), targets.to(device)
                 
                 optimizer.zero_grad()
-                # 1. 取得模型輸出
-                # 配合階段四的 sd_iasr.py，這裡要接收 9 個回傳值
-                
-                #outputs = model(seqs, times, targets, sim_laplacian, com_laplacian)
-                # --- [修改這一行] ---
-                # 將原本餵入 sim_laplacian, com_laplacian 改為兩次都餵入同一個 combined_laplacian
-                #outputs = model(seqs, times, targets, combined_laplacian, combined_laplacian)
-                #outputs = model(seqs, times, targets, adj_self, adj_dele)
-                #scores = model.predict_full(seqs, times, adj_self, adj_dele)
-
-                # 2. 計算原始的聯合損失 (BPR + 正則化)
-                #loss, l_seq, l_sim, l_rel = criterion(scores, sim_scores, rel_scores, model)
                 
                 # 1. 直接從 model 回傳值中拆解出所有變數
                 outputs = model(seqs, times, targets, adj_self, adj_dele)
@@ -299,7 +277,7 @@ def main():
 
                 loss.backward()
                 
-                # [新增] 梯度裁剪：將所有參數的梯度範數限制在 5.0 以內
+                # 梯度裁剪：將所有參數的梯度範數限制在 5.0 以內
                 torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=5.0)
                 
                 optimizer.step()
@@ -316,7 +294,7 @@ def main():
                 total_item_diff_loss += l_cl.item()  # 紀錄對比損失
                 
                 
-                pbar.set_postfix({"loss": f"{loss.item():.4f}", "alpha": f"{alpha.mean().item():.3f}"})
+                pbar.set_postfix({"loss": f"{loss.item():.4f}", "L_seq": f"{l_seq.item():.4f}", "L_proto": f"{l_proto.item():.3f}","alpha": f"{alpha.mean().item():.2f}"})
                 
             # 計算平均值
             num_batches = len(train_loader)

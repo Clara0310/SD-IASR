@@ -13,7 +13,7 @@ class SDIASR(nn.Module):
         self.gamma = gamma
         
         
-        # === 1. 修改：多特徵融合初始嵌入層 (Multi-View Feature Fusion) ===
+        # === 1. 多特徵融合初始嵌入層 (Multi-View Feature Fusion) ===
         # A. 定義價格 Embedding
         self.price_emb_dim = 64  # 設定價格向量維度
         self.price_embedding = nn.Embedding(20, self.price_emb_dim) # 20 bins
@@ -36,13 +36,11 @@ class SDIASR(nn.Module):
         # D. 最終的商品嵌入層
         # 注意：這裡存放的是「融合並降維後」的結果，所以維度直接是 emb_dim
         self.item_embedding = nn.Embedding(item_num, emb_dim)
+        self.dropout = nn.Dropout(dropout) # <--- [新增] 定義一個全域 dropout 層
         
-        # (原本的 self.proj 已被 feature_fusion 取代，故移除)
-        # 1. 商品初始嵌入層 (Item Embedding)
-        # 修改：增加投影層，將 768 維 BERT 降維至 emb_dim (如 64)
-        #self.item_embedding = nn.Embedding(item_num, bert_dim)
-        #self.proj = nn.Linear(bert_dim, emb_dim)
         
+        
+        # === 2. 動態門控 ===================================================
         # [新增] 動態門控網絡：決定要聽內容(BERT)還是聽圖(Spectral)
         self.gamma_gating = nn.Sequential(
             nn.Linear(emb_dim, emb_dim // 2),
@@ -51,7 +49,7 @@ class SDIASR(nn.Module):
             nn.Sigmoid()
         )
         
-        # === 2. 譜關係解耦模組 === (Spectral Disentangling Module)
+        # === 3. 譜關係解耦模組 (Spectral Disentangling Module)=== 
         self.spectral_disentangler = SpectralDisentangler(
                     item_num, 
                     emb_dim, 
@@ -61,7 +59,7 @@ class SDIASR(nn.Module):
                     gamma=gamma
                 )        
         
-        # === 3. 序列編碼與意圖捕捉模組 === (Dual-Channel Transformer)
+        # === 4. 序列編碼與意圖捕捉模組 (Dual-Channel Transformer)=== 
         self.sequential_encoder = SequentialEncoder(
             emb_dim, 
             max_seq_len, 
@@ -70,17 +68,21 @@ class SDIASR(nn.Module):
             dropout=dropout
         )
         
-        # --- [新增這一行] ---
         self.layer_norm = nn.LayerNorm(emb_dim)  # 用於穩定譜解耦後的特徵
         
-        # === 4. 使用者意圖預測模組 === (Intent-Aware Prediction)
+        # === 5. 使用者意圖預測模組 === (Intent-Aware Prediction)
         self.predictor = IntentPredictor(emb_dim, dropout=dropout)
-        self.dropout = nn.Dropout(dropout) # <--- [新增] 定義一個全域 dropout 層
+        
         
         # [新增] 意圖原型矩陣：代表全域的潛在行為模式 (例如：購買咖啡的意圖、購買零食的意圖)
+        # [核心升級] 雙重原型矩陣：強迫語義解耦
         self.num_prototypes = num_prototypes
-        self.prototypes = nn.Parameter(torch.zeros(num_prototypes, emb_dim))
-        nn.init.xavier_uniform_(self.prototypes)
+        # 相似原型：捕捉類別共性
+        self.sim_prototypes = nn.Parameter(torch.zeros(num_prototypes, emb_dim))
+        # 互補原型：捕捉搭配特性
+        self.cor_prototypes = nn.Parameter(torch.zeros(num_prototypes, emb_dim))
+        nn.init.xavier_uniform_(self.sim_prototypes)
+        nn.init.xavier_uniform_(self.cor_prototypes)
         
         
 
@@ -92,34 +94,19 @@ class SDIASR(nn.Module):
         """
         # A. 取得所有商品的基礎嵌入
         all_item_indices = torch.arange(self.item_num).to(seq_indices.device)
-        #initial_embs = self.proj(self.item_embedding(all_item_indices)) # [num_items, emb_dim]
-        # 修改：因為 item_embedding 已經在 load_pretrain_embedding 時被初始化為 emb_dim
-        # 所以這裡不需要再做 self.proj，直接取用即可
         initial_embs = self.item_embedding(all_item_indices) # [num_items, emb_dim]
-        
-        # [新增] 在初始 Embedding 後加 Dropout
         initial_embs = self.dropout(initial_embs)
 
         
         # B. 執行譜解耦：生成相似性特徵 X_sim 與 互補性特徵 X_cor
-        #x_sim, x_cor = self.spectral_disentangler(initial_embs, sim_laplacian, com_laplacian)
         raw_sim, raw_cor = self.spectral_disentangler(initial_embs, adj_self, adj_dele)
         
-        #============================================================
-        # [關鍵] 在這裡加回殘差，讓模型保留 BERT 語義
-        # 這樣譜特徵就不會被 identity 淹沒到坍縮，但 BERT 特徵又能被保護
-        #x_sim = initial_embs + self.gamma * raw_sim
-        #x_cor = initial_embs + self.gamma * raw_cor
-        # 執行原本的 LayerNorm
-        #x_sim = self.layer_norm(x_sim)
-        #x_cor = self.layer_norm(x_cor)
-        # [核心修改] 動態門控融合：不再使用固定的 gamma
+        # 動態門控融合：不再使用固定的 gamma
         gate = self.gamma_gating(initial_embs) # [item_num, 1]
         x_sim = self.layer_norm(initial_embs + gate * raw_sim)
         x_cor = self.layer_norm(initial_embs + gate * raw_cor)
-        #============================================================
         
-        # === [新增] 計算兩個空間的特徵相似度 (診斷點 2) ===
+        # === 計算兩個空間的特徵相似度 (診斷點 ===
         # 我們想知道譜解耦後，兩個矩陣是否分得很開
         with torch.no_grad():
             # 計算所有商品在兩個空間的餘弦相似度均值
@@ -130,8 +117,7 @@ class SDIASR(nn.Module):
         seq_sim_embs = F.embedding(seq_indices, x_sim) # [batch, seq_len, emb_dim]
         seq_cor_embs = F.embedding(seq_indices, x_cor) # [batch, seq_len, emb_dim]
         
-        # D. 修正：建立 Padding Mask (True 代表該位置是 0，需要屏蔽)
-        # 這會與 SequentialEncoder 內的 nn.TransformerEncoder 完美對齊
+        # D. 建立 Padding Mask (True 代表該位置是 0，需要屏蔽)
         mask = (seq_indices == 0)
 
         # E. 雙通道序列編碼：捕捉近期與全局意圖
@@ -140,26 +126,20 @@ class SDIASR(nn.Module):
 
         # [核心新增] 計算意圖與原型的相似度得分，供 Prototype CL Loss 使用
         # 這裡計算 User Intent 到各個全域中心的投影
-        proto_sim_scores = torch.matmul(u_sim, self.prototypes.t()) # [Batch, Num_Prototypes]
-        proto_cor_scores = torch.matmul(u_cor, self.prototypes.t()) # [Batch, Num_Prototypes]
+        proto_sim_scores = torch.matmul(u_sim, self.sim_prototypes.t()) # 相似意圖對齊相似中心
+        proto_cor_scores = torch.matmul(u_cor, self.cor_prototypes.t()) # 互補意圖對齊互補中心
         
         # F. 取得候選商品的特徵 (同樣經過譜解耦)
         target_sim_embs = F.embedding(target_indices, x_sim) # [batch, 1+neg, emb_dim]
         target_cor_embs = F.embedding(target_indices, x_cor)
         
-        # 融合候選商品特徵作為評分基準
-        #target_embs = (target_sim_embs + target_cor_embs) / 2
 
         # G. 意圖預測與自適應融合
-        # scores, alpha, sim_scores, rel_scores = self.predictor(sim_intents, cor_intents, target_sim_embs, target_cor_embs)
-        scores, alpha, sim_scores, rel_scores = self.predictor(sim_intents, cor_intents, target_sim_embs, target_cor_embs)
-        # [修改回傳值] 加入兩個全局意圖向量 (u_sim_att, u_cor_att) 以供診斷與 Loss 使用
-        u_sim_att = sim_intents[1]
-        u_cor_att = cor_intents[1]
+        scores, alpha, sim_scores, rel_scores = self.predictor(sim_intents, cor_intents, target_sim_embs, target_cor_embs)        
         
-        # return scores, alpha, sim_scores, rel_scores, feat_sim, u_sim_att, u_cor_att,x_sim, x_cor
         # 回傳包含全局意圖向量 (sim_intents[1], cor_intents[1]) 供 CL Loss 使用
-        return scores, alpha, sim_scores, rel_scores, feat_sim, u_sim, u_cor, proto_sim_scores, proto_cor_scores  
+        return scores, alpha, sim_scores, rel_scores, feat_sim, u_sim, u_cor, proto_sim_scores, proto_cor_scores    
+    
       
     def load_pretrain_embedding(self, cid2_emb, cid3_emb, item_to_cid, item_to_price):
         
