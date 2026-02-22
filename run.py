@@ -293,6 +293,7 @@ def main():
                 total_alpha += alpha.mean().item()  # 紀錄 Alpha 均值
                 total_feat_sim += feat_sim.item()   # 紀錄特徵相似度
                 total_item_diff_loss += l_cl.item()  # 紀錄對比損失
+                total_proto_loss += l_proto.item() # 請確保你有定義 total_proto_loss
                 
                 
                 pbar.set_postfix({"loss": f"{loss.item():.4f}", "L_seq": f"{l_seq.item():.4f}", "L_proto": f"{l_proto.item():.3f}","alpha": f"{alpha.mean().item():.2f}"})
@@ -309,6 +310,7 @@ def main():
             avg_feat_sim = total_feat_sim / len(train_loader)
             
             avg_cl_loss = total_l_cl / len(train_loader)
+            avg_proto_loss = total_proto_loss / len(train_loader)
 
             # 驗證階段
             model.eval()
@@ -383,7 +385,7 @@ def main():
             current_lr = optimizer.param_groups[0]['lr']
             
             # --- 完整印出所有指標 ---
-            print(f"Epoch {epoch} | TotalLoss: {avg_loss:.4f} | L_seq: {avg_l_seq:.4f} | L_cl: {avg_l_cl:.4f} | L_proto: {avg_cl_loss:.4f} | Alpha: {avg_alpha:.4f} | Feat_Sim: {avg_feat_sim:.4f}")            
+            print(f"Epoch {epoch} | TotalLoss: {avg_loss:.4f} | L_seq: {avg_l_seq:.4f} | L_cl: {avg_l_cl:.4f} | L_proto: {avg_proto_loss:.4f} | Alpha: {avg_alpha:.4f} | Feat_Sim: {avg_feat_sim:.4f}")            
             print(f"Val HR@10: {avg_hr:.4f} | Val NDCG@10: {avg_ndcg:.4f} | Current LR: {current_lr}")        
             
             # 執行學習率調整：根據目前的 avg_hr 判斷是否需要降速
