@@ -214,6 +214,7 @@ def main():
         lambda_2=args.lambda_2,
         lambda_reg=args.lambda_3,
         lambda_cl=args.lambda_cl, # 傳入新參數
+        lambda_proto=args.lambda_proto, # 傳入新參數
         tau=args.tau
     )
     

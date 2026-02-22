@@ -42,10 +42,9 @@ LR_PATIENCE=25     # 這是排程器的耐心值（例如 15 次沒進步就降�
 # loss 權重參數
 LAMBDA_1=2.0 # 相似推薦權重
 LAMBDA_2=2.0 #互補損失比重
-LAMBDA_3=0.001 # 提高 Weight Decay 正則化 (從 0.001 提升至 0.01)
+LAMBDA_3=0.01 # 提高 Weight Decay 正則化 (從 0.001 提升至 0.01)
 LAMBDA_CL=0.05 # 對比學習損失權重
 LAMBDA_PROTO=0.1 # 原型損失權重
-LAMBDA_REG=0.01 # 正則化損失權重（如果需要額外的正則化項）
 TAU=0.1       # 對比學習溫度參數
 
 num_prototypes=64 # 全局意圖原型的數量
@@ -83,7 +82,6 @@ python run.py \
     --lambda_3 $LAMBDA_3 \
     --lambda_cl $LAMBDA_CL \
     --lambda_proto $LAMBDA_PROTO \
-    --lambda_reg $LAMBDA_REG \
     --num_prototypes $num_prototypes \
     --tau $TAU \
     --dropout $DROPOUT \
