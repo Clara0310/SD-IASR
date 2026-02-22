@@ -68,13 +68,12 @@ def main():
     parser.add_argument('--test_only', action='store_true', help='只執行測試，跳過訓練')
     parser.add_argument('--checkpoint_path', type=str, default=None, help='測試模式下，指定要載入的模型路徑 (.pth)')
     
-    parser.add_argument('--lambda_cl', type=float, default=0.05, help='Weight for Contrastive Learning')
+    parser.add_argument('--lambda_cl', type=float, default=0.01, help='Weight for Contrastive Learning')
     parser.add_argument('--tau', type=float, default=0.1, help='Temperature for CL')
     
     parser.add_argument('--num_prototypes', type=int, default=64, help='Number of global intent prototypes')
     parser.add_argument('--lambda_proto', type=float, default=0.1, help='Weight for Prototype loss')
     
-    parser.add_argument('--lambda_cl', type=float, default=0.01) # 預設改小
     parser.add_argument('--lambda_ortho', type=float, default=0.1, help='Weight for Orthogonality loss')
     
     args = parser.parse_args()
