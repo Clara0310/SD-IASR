@@ -74,6 +74,9 @@ def main():
     parser.add_argument('--num_prototypes', type=int, default=64, help='Number of global intent prototypes')
     parser.add_argument('--lambda_proto', type=float, default=0.1, help='Weight for Prototype loss')
     
+    parser.add_argument('--lambda_cl', type=float, default=0.01) # 預設改小
+    parser.add_argument('--lambda_ortho', type=float, default=0.1, help='Weight for Orthogonality loss')
+    
     args = parser.parse_args()
     
     # 建立時間標記字串
@@ -208,13 +211,14 @@ def main():
         print("Warning: BERT embedding file not found. Using random initialization.")
     # ---------------------------------------
 
-    # 這裡手動設定 lambda_1 和 lambda_2
+    # 初始化 Criterion
     criterion = SDIASRLoss(
         lambda_1=args.lambda_1, 
         lambda_2=args.lambda_2,
         lambda_reg=args.lambda_3,
-        lambda_cl=args.lambda_cl, # 傳入新參數
-        lambda_proto=args.lambda_proto, # 傳入新參數
+        lambda_cl=args.lambda_cl,
+        lambda_proto=args.lambda_proto, # [修正] 補上
+        lambda_ortho=args.lambda_ortho, # [新增]
         tau=args.tau
     )
     
@@ -258,10 +262,10 @@ def main():
         for epoch in range(start_epoch, args.epochs):
             model.train()
             total_loss, total_l_seq, total_l_sim, total_l_rel, total_l_cl ,total_proto_loss= 0, 0, 0, 0, 0, 0
-            total_alpha = 0     # [新增] 初始化 alpha 累加器
-            total_feat_sim = 0  # [新增] 初始化特徵相似度累加器
-            total_item_diff_loss = 0  # [新增] 初始化意圖差異損失累加器
-            
+            total_alpha = 0     # 初始化 alpha 累加器
+            total_feat_sim = 0  # 初始化特徵相似度累加器
+            total_item_diff_loss = 0  # 初始化意圖差異損失累加器
+            total_l_ortho = 0 # 新增計數器
             
             
             pbar = tqdm(train_loader, desc=f"Epoch {epoch} Training")
@@ -274,8 +278,10 @@ def main():
                 outputs = model(seqs, times, targets, adj_self, adj_dele)
                 scores, alpha, sim_scores, rel_scores, feat_sim, u_sim, u_cor, p_sim_s, p_cor_s = outputs
                 # 2. 計算新 Loss (包含 CL)
-                loss, l_seq, l_sim, l_rel, l_cl, l_proto = criterion(scores, sim_scores, rel_scores, u_sim, u_cor, p_sim_s, p_cor_s, model)
-
+                loss, l_seq, l_sim, l_rel, l_cl, l_proto, l_ortho = criterion(
+                        scores, sim_scores, rel_scores, u_sim, u_cor, p_sim_s, p_cor_s, model
+                    )
+                
                 loss.backward()
                 
                 # 梯度裁剪：將所有參數的梯度範數限制在 5.0 以內
@@ -292,12 +298,12 @@ def main():
                 # [新增] 累計監控數值
                 total_alpha += alpha.mean().item()  # 紀錄 Alpha 均值
                 total_feat_sim += feat_sim.item()   # 紀錄特徵相似度
-                #total_item_diff_loss += l_cl.item()  # 紀錄對比損失
                 total_proto_loss += l_proto.item() # 請確保你有定義 total_proto_loss
+                total_l_ortho += l_ortho.item() # [新增] 累計正交損失
                 
                 
-                pbar.set_postfix({"loss": f"{loss.item():.4f}", "L_seq": f"{l_seq.item():.4f}", "L_proto": f"{l_proto.item():.3f}","alpha": f"{alpha.mean().item():.2f}"})
-                
+                pbar.set_postfix({"L_seq": f"{l_seq.item():.4f}", "L_ortho": f"{l_ortho.item():.3f}", "Feat_Sim": f"{feat_sim.item():.2f}"})                
+            
             # 計算平均值
             num_batches = len(train_loader)
             avg_loss = total_loss / num_batches
@@ -305,6 +311,7 @@ def main():
             avg_l_sim = total_l_sim / num_batches
             avg_l_rel = total_l_rel / num_batches
             avg_l_cl = total_l_cl / num_batches
+            avg_l_ortho = total_l_ortho / num_batches
             
             avg_alpha = total_alpha / len(train_loader)
             avg_feat_sim = total_feat_sim / len(train_loader)
@@ -385,7 +392,7 @@ def main():
             current_lr = optimizer.param_groups[0]['lr']
             
             # --- 完整印出所有指標 ---
-            print(f"Epoch {epoch} | TotalLoss: {avg_loss:.4f} | L_seq: {avg_l_seq:.4f} | L_cl: {avg_l_cl:.4f} | L_proto: {avg_proto_loss:.4f} | Alpha: {avg_alpha:.4f} | Feat_Sim: {avg_feat_sim:.4f}")            
+            print(f"Epoch {epoch} | TotalLoss: {avg_loss:.4f} | L_seq: {avg_l_seq:.4f} | L_cl: {avg_l_cl:.4f} | L_proto: {avg_proto_loss:.4f} | L_ortho: {avg_l_ortho:.4f}| Alpha: {avg_alpha:.4f} | Feat_Sim: {avg_feat_sim:.4f}")            
             print(f"Val HR@10: {avg_hr:.4f} | Val NDCG@10: {avg_ndcg:.4f} | Current LR: {current_lr}")        
             
             # 執行學習率調整：根據目前的 avg_hr 判斷是否需要降速

@@ -7,13 +7,14 @@ class SDIASRLoss(nn.Module):
     SD-IASR 專用損失函數模組
     包含 BPR 推薦損失與權重正則化。
     """
-    def __init__(self, lambda_1=2.0, lambda_2=2.0, lambda_reg=0.01, lambda_cl=0.05, lambda_proto=0.1, tau=0.1):
+    def __init__(self, lambda_1=2.0, lambda_2=2.0, lambda_reg=0.01, lambda_cl=0.01, lambda_proto=0.1, lambda_ortho=0.1, tau=0.1):
         super(SDIASRLoss, self).__init__()
         self.lambda_1 = lambda_1
         self.lambda_2 = lambda_2
         self.lambda_reg = lambda_reg
         self.lambda_cl = lambda_cl # 對比學習權重
-        self.lambda_proto = lambda_proto # [新增] 原型損失權重
+        self.lambda_proto = lambda_proto # 原型損失權重
+        self.lambda_ortho = lambda_ortho # [新增] 正交化權重
         self.tau = tau             # 溫度參數
 
     def bpr_loss(self, scores):
@@ -32,6 +33,12 @@ class SDIASRLoss(nn.Module):
         loss = -torch.mean(torch.log(torch.sigmoid(pos_scores - neg_scores) + 1e-10))
         return loss
     
+    # [新增] 正交損失：強迫兩個向量空間正交 (相似度趨近 0)
+    def calculate_ortho_loss(self, view1, view2):
+        # 使用餘弦相似度的平方，不論正負值都往 0 推
+        cos_sim = F.cosine_similarity(view1, view2, dim=-1)
+        return torch.mean(cos_sim**2)
+    
     # [新增] 跨視角意圖對比損失 (InfoNCE)
     def calculate_cl_loss(self, view1, view2):
         view1 = F.normalize(view1, dim=-1)
@@ -45,7 +52,7 @@ class SDIASRLoss(nn.Module):
         cl_loss = -torch.log(torch.exp(pos_score) / exp_all_score)
         return cl_loss.mean()
 
-    # [核心新增] 意圖-原型對齊損失 (BARec 風格)
+    # 意圖-原型對齊損失 (BARec 風格)
     def calculate_proto_loss(self, proto_scores):
         """
         將 User Intent 分配到最接近的原型中心。
@@ -59,27 +66,29 @@ class SDIASRLoss(nn.Module):
         loss = -torch.mean(torch.sum(probs * log_probs, dim=-1))
         return loss
 
-    def forward(self, scores, sim_scores, rel_scores,u_sim, u_cor, p_sim_s, p_cor_s, model):
-        # 1. 序列推薦 Loss (BPR)
+    def forward(self, scores, sim_scores, rel_scores, u_sim, u_cor, p_sim_s, p_cor_s, model):
+        # 1. BPR 推薦損失 (+1e-10 數值穩定)
         l_seq = -torch.mean(torch.log(torch.sigmoid(scores[:, 0].unsqueeze(1) - scores[:, 1:]) + 1e-10))
         l_sim = -torch.mean(torch.log(torch.sigmoid(sim_scores[:, 0].unsqueeze(1) - sim_scores[:, 1:]) + 1e-10))
         l_rel = -torch.mean(torch.log(torch.sigmoid(rel_scores[:, 0].unsqueeze(1) - rel_scores[:, 1:]) + 1e-10))
         
         # 2. 正則化
-        reg_loss = 0
-        for param in model.parameters():
-            reg_loss += torch.norm(param, p=2)
+        reg_loss = sum(torch.norm(param, p=2) for param in model.parameters())
             
-        # 3. 意圖層級對比學習
+        # 3. 對比與原型損失
         l_cl = self.calculate_cl_loss(u_sim, u_cor)
-        
-        # 4. 原型聚類損失
         l_proto = self.calculate_proto_loss(p_sim_s) + self.calculate_proto_loss(p_cor_s)
         
-        # 最終組合：加入 lambda_proto * l_proto
+        # 4. [核心新增] 意圖正交損失：強迫 u_sim 與 u_cor 分開
+        l_ortho = self.calculate_ortho_loss(u_sim, u_cor)
+        
+        # 5. [核心新增] 原型正交損失：確保相似原型與互補原型指向不同語義
+        l_p_ortho = self.calculate_ortho_loss(model.sim_prototypes, model.cor_prototypes)
+        
         total_loss = (l_seq + self.lambda_1 * l_sim + self.lambda_2 * l_rel) + \
                      self.lambda_reg * reg_loss + \
                      self.lambda_cl * l_cl + \
-                     self.lambda_proto * l_proto
+                     self.lambda_proto * l_proto + \
+                     self.lambda_ortho * (l_ortho + l_p_ortho) # 引入正交化力量
                      
-        return total_loss, l_seq, l_sim, l_rel, l_cl, l_proto
+        return total_loss, l_seq, l_sim, l_rel, l_cl, l_proto, l_ortho
