@@ -44,9 +44,12 @@ def main():
     #loss 權重參數
     parser.add_argument('--lambda_1', type=float, default=1.0, help='Weight for similarity loss')
     parser.add_argument('--lambda_2', type=float, default=1.0, help='Weight for complementarity loss')
-    parser.add_argument('--lambda_3', type=float, default=0.01, help='Regularization weight')
+    parser.add_argument('--lambda_reg', type=float, default=0.01, help='Regularization weight')
+    parser.add_argument('--lambda_proto', type=float, default=0.1, help='Weight for Prototype loss')
+    parser.add_argument('--lambda_spec', type=float, default=0.05, help='Weight for Spectral Orthogonality loss')
+    parser.add_argument('--tau', type=float, default=0.2, help='Temperature for CL')
+   
     
-    parser.add_argument('--lambda_diff', type=float, default=0.03, help='Weight for item disentangle loss')
     parser.add_argument('--gamma', type=float, default=0.1, help='Spectral signal ratio')
     
     # 新增Dropout 參數
@@ -68,11 +71,8 @@ def main():
     parser.add_argument('--test_only', action='store_true', help='只執行測試，跳過訓練')
     parser.add_argument('--checkpoint_path', type=str, default=None, help='測試模式下，指定要載入的模型路徑 (.pth)')
     
-    parser.add_argument('--lambda_cl', type=float, default=0.1, help='Weight for Contrastive Learning')
-    parser.add_argument('--tau', type=float, default=0.2, help='Temperature for CL')
     
     parser.add_argument('--num_prototypes', type=int, default=64, help='Number of global intent prototypes')
-    parser.add_argument('--lambda_proto', type=float, default=0.1, help='Weight for Prototype loss')
     
     args = parser.parse_args()
     
@@ -217,13 +217,13 @@ def main():
         print("Warning: BERT embedding file not found. Using random initialization.")
     # ---------------------------------------
 
-    # 這裡手動設定 lambda_1 和 lambda_2
-    #criterion = SDIASRLoss(lambda_reg=args.lambda_3)
+    # 初始化 Criterion
     criterion = SDIASRLoss(
         lambda_1=args.lambda_1, 
         lambda_2=args.lambda_2,
-        lambda_reg=args.lambda_3,
-        lambda_cl=args.lambda_cl, # 傳入新參數
+        lambda_reg=args.lambda_reg,
+        lambda_cl=args.lambda_cl,
+        lambda_spec=args.lambda_spec,
         tau=args.tau
     )
     
@@ -242,10 +242,8 @@ def main():
     
     best_hr = 0
     start_epoch = 0
-    #model_save_path = os.path.join(checkpoint_dir, "best_model.pth")
     
     # --- 續跑邏輯 (Resume Logic) ---
-    # --- 續跑邏輯 (修正版：支援手動路徑) ---
     # 優先檢查是否有提供手動路徑，如果沒有再找當前資料夾 (雖然當前資料夾通常是空的)
     load_resume_path = args.resume_path if args.resume_path else model_save_path
 
@@ -256,7 +254,6 @@ def main():
         print("權重載入成功！")
     elif args.resume:
         print(f"警告：設定了 --resume 但找不到模型檔案 {load_resume_path}，將從頭開始訓練。")
-    # ----------------------------------
     # ----------------------------------
 
     
@@ -278,25 +275,16 @@ def main():
                 seqs, times, targets = seqs.to(device), times.to(device), targets.to(device)
                 
                 optimizer.zero_grad()
-                # 1. 取得模型輸出
-                # 配合階段四的 sd_iasr.py，這裡要接收 9 個回傳值
                 
-                #outputs = model(seqs, times, targets, sim_laplacian, com_laplacian)
-                # --- [修改這一行] ---
-                # 將原本餵入 sim_laplacian, com_laplacian 改為兩次都餵入同一個 combined_laplacian
-                #outputs = model(seqs, times, targets, combined_laplacian, combined_laplacian)
-                #outputs = model(seqs, times, targets, adj_self, adj_dele)
-                #scores = model.predict_full(seqs, times, adj_self, adj_dele)
-
-                # 2. 計算原始的聯合損失 (BPR + 正則化)
-                #loss, l_seq, l_sim, l_rel = criterion(scores, sim_scores, rel_scores, model)
                 
                 # 1. 直接從 model 回傳值中拆解出所有變數
+                # 接收 11 個回傳值 (包含最後的 raw_sim, raw_cor)
                 outputs = model(seqs, times, targets, adj_self, adj_dele)
-                scores, alpha, sim_scores, rel_scores, feat_sim, u_sim, u_cor, p_sim_s, p_cor_s = outputs
+                scores, alpha, sim_scores, rel_scores, feat_sim, u_sim, u_cor, p_sim_s, p_cor_s, r_sim, r_cor = outputs
                 # 2. 計算新 Loss (包含 CL)
-                loss, l_seq, l_sim, l_rel, l_cl, l_proto = criterion(scores, sim_scores, rel_scores, u_sim, u_cor, p_sim_s, p_cor_s, model)
-
+                loss, l_seq, l_proto, l_spec = criterion(
+                        scores, sim_scores, rel_scores, u_sim, u_cor, p_sim_s, p_cor_s, r_sim, r_cor, model
+                    )
                 loss.backward()
                 
                 # [新增] 梯度裁剪：將所有參數的梯度範數限制在 5.0 以內
@@ -310,26 +298,25 @@ def main():
                 total_l_sim += l_sim.item()
                 total_l_rel += l_rel.item()
                 total_l_cl += l_cl.item()
-                # [新增] 累計監控數值
                 total_alpha += alpha.mean().item()  # 紀錄 Alpha 均值
                 total_feat_sim += feat_sim.item()   # 紀錄特徵相似度
-                total_item_diff_loss += l_cl.item()  # 紀錄對比損失
+                total_l_proto += l_proto.item()  # 紀錄原型損失
+                total_l_spec += l_spec.item()    # 紀錄譜圖解耦損失
                 
-                
-                pbar.set_postfix({"loss": f"{loss.item():.4f}", "alpha": f"{alpha.mean().item():.3f}"})
-                
+                pbar.set_postfix({"L_seq": f"{l_seq.item():.4f}", "L_spec": f"{l_spec.item():.3f}", "Feat_Sim": f"{feat_sim.item():.2f}"})                
+            
             # 計算平均值
             num_batches = len(train_loader)
             avg_loss = total_loss / num_batches
             avg_l_seq = total_l_seq / num_batches
             avg_l_sim = total_l_sim / num_batches
             avg_l_rel = total_l_rel / num_batches
-            avg_l_cl = total_l_cl / num_batches
             
             avg_alpha = total_alpha / len(train_loader)
             avg_feat_sim = total_feat_sim / len(train_loader)
             
-            avg_cl_loss = total_l_cl / len(train_loader)
+            avg_proto_loss = total_l_proto / len(train_loader)
+            avg_spec_loss = total_l_spec / len(train_loader)
 
             # 驗證階段
             model.eval()
@@ -346,8 +333,6 @@ def main():
                     target_pos = targets.squeeze() # [Batch]
                     
                     # 1. 算出所有商品的分數 [Batch, Num_Items]
-                    #scores = model.predict_full(seqs, times, sim_laplacian, com_laplacian)
-                    #scores = model.predict_full(seqs, times, adj_self, adj_dele)
                     # 改呼叫 fast 版本，傳入緩存的特徵
                     scores = model.predict_full_fast(seqs, times, x_sim_all, x_cor_all)
                     
@@ -357,28 +342,12 @@ def main():
                     pos_scores = scores.gather(1, target_pos.unsqueeze(1)) # [Batch, 1]
                     
                     # 3. Masking (屏蔽歷史購買過的商品)
-                    # 這些商品的分數設為 -inf，讓它們排在最後面，不影響排名
-                    #scores.scatter_(1, seqs, -float('inf'))
-                    # --- [取代原本的 Masking 邏輯] ---
-                    # 3. 全歷史 Masking
-                    # for b_idx in range(scores.size(0)):
-                    #     # 取得該樣本在原始 val_set 中的索引
-                    #     idx_in_set = batch_indices[b_idx].item()
-                    #     # 從 raw_data 獲取完整歷史 (val_set 的第 0 欄)
-                    #     full_history = raw_data['val_set'][idx_in_set][0]
-                    #     scores[b_idx, full_history] = -float('inf')
-                    # -------------------------------
                     # --- [核心優化：全歷史 Masking 一行搞定] ---
                     # 取得這一個 batch 對應的全歷史張量
                     batch_hist = val_history_matrix[batch_indices] 
                     # GPU 平行寫入 -inf
                     scores.scatter_(1, batch_hist, -float('inf')) 
-                    # ------------------------------------------
-                    
-                    
-                    
-                    
-                    # 3.1 [修正] 把正確答案的分數「救回來」！
+                                       
                     # 如果正確答案在 seqs 裡，它剛剛被誤殺了，現在我們把它還原
                     scores.scatter_(1, target_pos.unsqueeze(1), pos_scores)
                     
@@ -404,7 +373,7 @@ def main():
             current_lr = optimizer.param_groups[0]['lr']
             
             # --- 完整印出所有指標 ---
-            print(f"Epoch {epoch} | TotalLoss: {avg_loss:.4f} | L_seq: {avg_l_seq:.4f} | L_sim: {avg_l_sim:.4f} | L_rel: {avg_l_rel:.4f} | L_cl: {avg_l_cl:.4f} | Alpha: {avg_alpha:.4f} | Feat_Sim: {avg_feat_sim:.4f}")
+            print(f"Epoch {epoch} | TotalLoss: {avg_loss:.4f} | L_seq: {avg_l_seq:.4f} | L_proto: {avg_proto_loss:.4f} | L_spec: {avg_spec_loss:.4f} | Alpha: {avg_alpha:.4f}| Feat_Sim: {avg_feat_sim:.4f}")
             print(f"Val HR@10: {avg_hr:.4f} | Val NDCG@10: {avg_ndcg:.4f} | Current LR: {current_lr}")        
             
             # 執行學習率調整：根據目前的 avg_hr 判斷是否需要降速
@@ -463,9 +432,6 @@ def main():
                 target_pos = target_pos.unsqueeze(0)
             
             # 1. [關鍵] 呼叫 predict_full 算出所有商品的分數 [Batch, Num_Items]
-            # 確保你在 models/sd_iasr.py 裡已經加入了 predict_full 方法
-            #scores = model.predict_full(seqs, times, sim_laplacian, com_laplacian)
-            # scores = model.predict_full(seqs, times, adj_self, adj_dele)
             # [修改] 改呼叫快速版本
             scores = model.predict_full_fast(seqs, times, x_sim_all, x_cor_all)
             
@@ -476,25 +442,9 @@ def main():
             
             
             # 3. Masking (屏蔽歷史購買過的商品)
-            # 將歷史商品的 index 設為負無限大，讓它們排在最後面
-            #scores.scatter_(1, seqs, -float('inf'))
-            # --- [取代原本的 Masking 邏輯] ---
-            # 3. 全歷史 Masking
-            # for b_idx in range(scores.size(0)):
-            #     # 取得該樣本在原始 test_set 中的索引
-            #     idx_in_set = batch_indices[b_idx].item()
-            #     # 從 raw_data 獲取完整歷史 (test_set 的第 0 欄)
-            #     full_history = raw_data['test_set'][idx_in_set][0]
-            #     scores[b_idx, full_history] = -float('inf')
-            # -------------------------------
             # --- [全歷史 Masking 優化] ---
             batch_hist = test_history_matrix[batch_indices]
-            scores.scatter_(1, batch_hist, -float('inf'))
-            # ----------------------------
-            
-            
-            
-            # 3.1. [修正] 把正確答案的分數「救回來」！
+            scores.scatter_(1, batch_hist, -float('inf'))           
             # 如果正確答案在 seqs 裡，它剛剛被誤殺了，現在我們把它還原
             scores.scatter_(1, target_pos.unsqueeze(1), pos_scores)
             

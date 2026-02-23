@@ -7,13 +7,13 @@ class SDIASRLoss(nn.Module):
     SD-IASR 專用損失函數模組
     包含 BPR 推薦損失與權重正則化。
     """
-    def __init__(self, lambda_1=1.0, lambda_2=1.0, lambda_reg=0.01, lambda_cl=0.1, lambda_proto=0.1, tau=0.2):
+    def __init__(self, lambda_1=1.0, lambda_2=1.0, lambda_reg=0.01, lambda_proto=0.1, lambda_spec=0.05,tau=0.2):
         super(SDIASRLoss, self).__init__()
         self.lambda_1 = lambda_1
         self.lambda_2 = lambda_2
         self.lambda_reg = lambda_reg
-        self.lambda_cl = lambda_cl # 對比學習權重
         self.lambda_proto = lambda_proto # [新增] 原型損失權重
+        self.lambda_spec = lambda_spec # 譜圖層解耦權重
         self.tau = tau             # 溫度參數
 
     def bpr_loss(self, scores):
@@ -59,27 +59,26 @@ class SDIASRLoss(nn.Module):
         loss = -torch.mean(torch.sum(probs * log_probs, dim=-1))
         return loss
 
-    def forward(self, scores, sim_scores, rel_scores,u_sim, u_cor, p_sim_s, p_cor_s, model):
-        # 1. 序列推薦 Loss (BPR)
-        l_seq = -torch.mean(torch.log(torch.sigmoid(scores[:, 0].unsqueeze(1) - scores[:, 1:])))
-        l_sim = -torch.mean(torch.log(torch.sigmoid(sim_scores[:, 0].unsqueeze(1) - sim_scores[:, 1:])))
-        l_rel = -torch.mean(torch.log(torch.sigmoid(rel_scores[:, 0].unsqueeze(1) - rel_scores[:, 1:])))
+    def forward(self, scores, sim_scores, rel_scores, u_sim, u_cor, p_sim_s, p_cor_s, r_sim, r_cor, model):
+        # 1. BPR 推薦損失 (加入 1e-10 防止數值不穩定)
+        l_seq = -torch.mean(torch.log(torch.sigmoid(scores[:, 0].unsqueeze(1) - scores[:, 1:]) + 1e-10))
+        l_sim = -torch.mean(torch.log(torch.sigmoid(sim_scores[:, 0].unsqueeze(1) - sim_scores[:, 1:]) + 1e-10))
+        l_rel = -torch.mean(torch.log(torch.sigmoid(rel_scores[:, 0].unsqueeze(1) - rel_scores[:, 1:]) + 1e-10))
         
-        # 2. 正則化
-        reg_loss = 0
-        for param in model.parameters():
-            reg_loss += torch.norm(param, p=2)
-            
-        # 3. [核心新增] 意圖層級對比學習
-        l_cl = self.calculate_cl_loss(u_sim, u_cor)
-        
-        # 4. [核心新增] 原型聚類損失
+        # 2. 原型聚類損失 (分流對齊)
         l_proto = self.calculate_proto_loss(p_sim_s) + self.calculate_proto_loss(p_cor_s)
         
-        # 最終組合：加入 lambda_proto * l_proto
+        # 3. [核心新增] 譜圖層正交解耦損失 (從根源推開)
+        # 對 raw_sim 與 raw_cor 進行正交化，確保圖信號不重疊
+        cos_sim_spec = F.cosine_similarity(r_sim, r_cor, dim=-1)
+        l_spec = torch.mean(cos_sim_spec**2)
+
+        # 4. 正則化
+        reg_loss = sum(torch.norm(param, p=2) for param in model.parameters())
+            
         total_loss = (l_seq + self.lambda_1 * l_sim + self.lambda_2 * l_rel) + \
                      self.lambda_reg * reg_loss + \
-                     self.lambda_cl * l_cl + \
-                     self.lambda_proto * l_proto
+                     self.lambda_proto * l_proto + \
+                     self.lambda_spec * l_spec
                      
-        return total_loss, l_seq, l_sim, l_rel, l_cl, l_proto
+        return total_loss, l_seq, l_proto, l_spec
