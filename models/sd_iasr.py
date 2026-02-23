@@ -124,6 +124,18 @@ class SDIASR(nn.Module):
         sim_intents, cor_intents = self.sequential_encoder(seq_sim_embs, seq_cor_embs, time_indices, mask)
         u_sim, u_cor = sim_intents[1], cor_intents[1] # 全局意圖向量
 
+        # === [階段二十二核心：投影正交化] ===
+        # 1. 將 u_sim 單位化
+        u_sim_unit = F.normalize(u_sim, p=2, dim=-1)
+        # 2. 算出 u_cor 在 u_sim 方向上的投影長度
+        proj_scalar = torch.sum(u_cor * u_sim_unit, dim=-1, keepdim=True)
+        # 3. 強行扣除該方向的分量，得到純淨的互補特徵
+        u_cor_pure = u_cor - proj_scalar * u_sim_unit
+        
+        # 更新 cor_intents 中的全局向量，確保預測器使用的是正交後的特徵
+        cor_intents = (cor_intents[0], u_cor_pure)
+        # =================================
+
         # [核心新增] 計算意圖與原型的相似度得分，供 Prototype CL Loss 使用
         # 這裡計算 User Intent 到各個全域中心的投影
         proto_sim_scores = torch.matmul(u_sim, self.sim_prototypes.t()) # 相似意圖對齊相似中心

@@ -43,9 +43,9 @@ LR_PATIENCE=25     # 這是排程器的耐心值（例如 15 次沒進步就降�
 LAMBDA_1=2.0 # 相似推薦權重
 LAMBDA_2=2.0 #互補損失比重
 LAMBDA_3=0.01 # 提高 Weight Decay 正則化 (從 0.001 提升至 0.01)
-LAMBDA_CL=0.01 # 對比學習損失權重
+LAMBDA_CL=0.001 # 對比學習損失權重
 LAMBDA_PROTO=0.1 # 原型損失權重
-LAMBDA_ORTHO=0.2   # [核心新增] 強力推開相似與互補空間
+LAMBDA_ORTHO=1.0   # [核心新增] 強力推開相似與互補空間
 TAU=0.1       # 對比學習溫度參數
 
 num_prototypes=64 # 全局意圖原型的數量

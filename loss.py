@@ -35,9 +35,10 @@ class SDIASRLoss(nn.Module):
     
     # [新增] 正交損失：強迫兩個向量空間正交 (相似度趨近 0)
     def calculate_ortho_loss(self, view1, view2):
-        # 使用餘弦相似度的平方，不論正負值都往 0 推
         cos_sim = F.cosine_similarity(view1, view2, dim=-1)
-        return torch.mean(cos_sim**2)
+        # 使用絕對值而非平方，確保在相似度接近 1 時擁有極大的反向梯度
+        loss = torch.mean(torch.abs(cos_sim))
+        return loss
     
     # [新增] 跨視角意圖對比損失 (InfoNCE)
     def calculate_cl_loss(self, view1, view2):
