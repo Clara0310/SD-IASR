@@ -222,7 +222,7 @@ def main():
         lambda_1=args.lambda_1, 
         lambda_2=args.lambda_2,
         lambda_reg=args.lambda_reg,
-        lambda_cl=args.lambda_cl,
+        lambda_proto=args.lambda_proto,
         lambda_spec=args.lambda_spec,
         tau=args.tau
     )
@@ -263,7 +263,7 @@ def main():
         
         for epoch in range(start_epoch, args.epochs):
             model.train()
-            total_loss, total_l_seq, total_l_sim, total_l_rel, total_l_cl = 0, 0, 0, 0, 0
+            total_loss, total_l_seq, total_l_sim, total_l_rel, total_l_proto, total_l_spec = 0, 0, 0, 0, 0, 0, 0
             total_alpha = 0     # [新增] 初始化 alpha 累加器
             total_feat_sim = 0  # [新增] 初始化特徵相似度累加器
             total_item_diff_loss = 0  # [新增] 初始化意圖差異損失累加器
@@ -303,7 +303,7 @@ def main():
                 total_l_proto += l_proto.item()  # 紀錄原型損失
                 total_l_spec += l_spec.item()    # 紀錄譜圖解耦損失
                 
-                pbar.set_postfix({"L_seq": f"{l_seq.item():.4f}", "L_spec": f"{l_spec.item():.3f}", "Feat_Sim": f"{feat_sim.item():.2f}"})                
+                pbar.set_postfix({"L_seq": f"{l_seq.item():.4f}", "L_proto": f"{l_proto.item():.3f}", "L_spec": f"{l_spec.item():.3f}","Feat_Sim": f"{feat_sim.item():.2f}"})                
             
             # 計算平均值
             num_batches = len(train_loader)
