@@ -61,7 +61,6 @@ DROPOUT=0.3 # 防過擬合
 # 移除了 ALPHA，並加入了 --resume 續跑與 --max_seq_len 參數
 python run.py \
     --dataset $DATASET \
-    --lambda_diff $LAMBDA_DIFF \
     --gamma $GAMMA \
     --embedding_dim $EMB_DIM \
     --bert_dim $BERT_DIM \
