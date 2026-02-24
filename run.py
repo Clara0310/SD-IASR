@@ -263,7 +263,7 @@ def main():
         
         for epoch in range(start_epoch, args.epochs):
             model.train()
-            total_loss, total_l_seq, total_l_sim, total_l_rel, total_l_proto, total_l_spec = 0, 0, 0, 0, 0, 0, 0
+            total_loss, total_l_seq, total_l_sim, total_l_rel, total_l_proto, total_l_spec = 0, 0, 0, 0, 0, 0
             total_alpha = 0     # [新增] 初始化 alpha 累加器
             total_feat_sim = 0  # [新增] 初始化特徵相似度累加器
             total_item_diff_loss = 0  # [新增] 初始化意圖差異損失累加器
@@ -295,13 +295,10 @@ def main():
                 # 累計損失與各項分數
                 total_loss += loss.item()
                 total_l_seq += l_seq.item()
-                total_l_sim += l_sim.item()
-                total_l_rel += l_rel.item()
-                total_l_cl += l_cl.item()
-                total_alpha += alpha.mean().item()  # 紀錄 Alpha 均值
-                total_feat_sim += feat_sim.item()   # 紀錄特徵相似度
-                total_l_proto += l_proto.item()  # 紀錄原型損失
-                total_l_spec += l_spec.item()    # 紀錄譜圖解耦損失
+                total_l_proto += l_proto.item()
+                total_l_spec += l_spec.item()
+                total_alpha += alpha.mean().item()
+                total_feat_sim += feat_sim.item()
                 
                 pbar.set_postfix({"L_seq": f"{l_seq.item():.4f}", "L_proto": f"{l_proto.item():.3f}", "L_spec": f"{l_spec.item():.3f}","Feat_Sim": f"{feat_sim.item():.2f}"})                
             
@@ -309,14 +306,10 @@ def main():
             num_batches = len(train_loader)
             avg_loss = total_loss / num_batches
             avg_l_seq = total_l_seq / num_batches
-            avg_l_sim = total_l_sim / num_batches
-            avg_l_rel = total_l_rel / num_batches
-            
-            avg_alpha = total_alpha / len(train_loader)
-            avg_feat_sim = total_feat_sim / len(train_loader)
-            
-            avg_proto_loss = total_l_proto / len(train_loader)
-            avg_spec_loss = total_l_spec / len(train_loader)
+            avg_proto_loss = total_l_proto / num_batches
+            avg_spec_loss = total_l_spec / num_batches
+            avg_alpha = total_alpha / num_batches
+            avg_feat_sim = total_feat_sim / num_batches
 
             # 驗證階段
             model.eval()
