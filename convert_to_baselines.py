@@ -106,8 +106,8 @@ def main():
          open(os.path.join(barec_dir, "test.txt"), 'w') as f_test:
         
         for user_row in valid_data:
-            u = user_row['u'] + 1
-            items = [i + 1 for i in user_row['items']]
+            u = user_row['u'] 
+            items = [i for i in user_row['items']]
             times = user_row['times']
             
             # Split
