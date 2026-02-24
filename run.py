@@ -45,9 +45,10 @@ def main():
     parser.add_argument('--lambda_1', type=float, default=1.0, help='Weight for similarity loss')
     parser.add_argument('--lambda_2', type=float, default=1.0, help='Weight for complementarity loss')
     parser.add_argument('--lambda_reg', type=float, default=0.01, help='Regularization weight')
-    parser.add_argument('--lambda_proto', type=float, default=0.1, help='Weight for Prototype loss')
+    parser.add_argument('--lambda_proto', type=float, default=0.01, help='Weight for Prototype loss')
     parser.add_argument('--lambda_spec', type=float, default=0.05, help='Weight for Spectral Orthogonality loss')
-    parser.add_argument('--tau', type=float, default=0.2, help='Temperature for CL')
+    parser.add_argument('--lambda_cl', type=float, default=0.005, help='Weight for Contrastive loss')
+    parser.add_argument('--tau', type=float, default=0.3, help='Temperature for CL')
    
     
     parser.add_argument('--gamma', type=float, default=0.1, help='Spectral signal ratio')
@@ -155,11 +156,8 @@ def main():
     
     
     
-    #sim_laplacian = create_laplacian(raw_data['sim_edge_index'], num_items).to(device)
-    #com_laplacian = create_laplacian(raw_data['com_edge_index'], num_items).to(device)
-    # --- [替換為以下程式碼] ---
-    # --- [正確的合併邏輯] ---
-   # 1. 取得兩組邊 (原始格式為 [E, 2])
+    
+    # 1. 取得兩組邊 (原始格式為 [E, 2])
     sim_edges = torch.tensor(raw_data['sim_edge_index']) # 例如 [451949, 2]
     com_edges = torch.tensor(raw_data['com_edge_index']) # 例如 [749935, 2]
 
@@ -167,17 +165,10 @@ def main():
     combined_edges = torch.cat([sim_edges, com_edges], dim=0) 
     combined_edges = torch.unique(combined_edges, dim=0).t() # [加上 .t() 轉置]
 
-    #==============================================================================
-    # [關鍵修正] 轉置為 [2, E] 格式，以符合 create_laplacian 的預期
-    #combined_edges = combined_edges.t() 
-    # 建立合併拉普拉斯矩陣
-    #combined_laplacian = create_laplacian(combined_edges, num_items).to(device)
-    #print(f"Graph merged: Total Unique Edges({combined_edges.shape[1]})")
     # [修改] 替換原有的 create_laplacian 呼叫
     adj_self, adj_dele = create_sr_matrices(combined_edges, num_items)
     adj_self, adj_dele = adj_self.to(device), adj_dele.to(device)
     print(f"SR-Rec matrices generated: Self & Dele")
-    #==============================================================================
     
 
     # 4. 初始化模型與 Loss
@@ -224,6 +215,7 @@ def main():
         lambda_reg=args.lambda_reg,
         lambda_proto=args.lambda_proto,
         lambda_spec=args.lambda_spec,
+        lambda_cl=args.lambda_cl,
         tau=args.tau
     )
     
@@ -263,10 +255,10 @@ def main():
         
         for epoch in range(start_epoch, args.epochs):
             model.train()
-            total_loss, total_l_seq, total_l_sim, total_l_rel, total_l_proto, total_l_spec = 0, 0, 0, 0, 0, 0
+            total_loss, total_l_seq, total_l_proto, total_l_spec, total_l_cl = 0, 0, 0, 0, 0 # [修正變數數量]
             total_alpha = 0     # [新增] 初始化 alpha 累加器
             total_feat_sim = 0  # [新增] 初始化特徵相似度累加器
-            total_item_diff_loss = 0  # [新增] 初始化意圖差異損失累加器
+            
             
             
             
@@ -282,7 +274,7 @@ def main():
                 outputs = model(seqs, times, targets, adj_self, adj_dele)
                 scores, alpha, sim_scores, rel_scores, feat_sim, u_sim, u_cor, p_sim_s, p_cor_s, r_sim, r_cor = outputs
                 # 2. 計算新 Loss (包含 CL)
-                loss, l_seq, l_proto, l_spec = criterion(
+                loss, l_seq, l_proto, l_spec, l_cl = criterion(
                         scores, sim_scores, rel_scores, u_sim, u_cor, p_sim_s, p_cor_s, r_sim, r_cor, model
                     )
                 loss.backward()
@@ -297,10 +289,11 @@ def main():
                 total_l_seq += l_seq.item()
                 total_l_proto += l_proto.item()
                 total_l_spec += l_spec.item()
+                total_l_cl += l_cl.item()
                 total_alpha += alpha.mean().item()
                 total_feat_sim += feat_sim.item()
                 
-                pbar.set_postfix({"L_seq": f"{l_seq.item():.4f}", "L_proto": f"{l_proto.item():.3f}", "L_spec": f"{l_spec.item():.3f}","Feat_Sim": f"{feat_sim.item():.2f}"})                
+                pbar.set_postfix({"L_seq": f"{l_seq.item():.4f}", "L_proto": f"{l_proto.item():.3f}", "L_spec": f"{l_spec.item():.3f}","L_cl": f"{l_cl.item():.3f}", "Feat_Sim": f"{feat_sim.item():.2f}"})                
             
             # 計算平均值
             num_batches = len(train_loader)
@@ -308,6 +301,7 @@ def main():
             avg_l_seq = total_l_seq / num_batches
             avg_proto_loss = total_l_proto / num_batches
             avg_spec_loss = total_l_spec / num_batches
+            avg_l_cl = total_l_cl / num_batches
             avg_alpha = total_alpha / num_batches
             avg_feat_sim = total_feat_sim / num_batches
 
@@ -366,7 +360,7 @@ def main():
             current_lr = optimizer.param_groups[0]['lr']
             
             # --- 完整印出所有指標 ---
-            print(f"Epoch {epoch} | TotalLoss: {avg_loss:.4f} | L_seq: {avg_l_seq:.4f} | L_proto: {avg_proto_loss:.4f} | L_spec: {avg_spec_loss:.4f} | Alpha: {avg_alpha:.4f}| Feat_Sim: {avg_feat_sim:.4f}")
+            print(f"Epoch {epoch} | TotalLoss: {avg_loss:.4f} | L_seq: {avg_l_seq:.4f} | L_proto: {avg_proto_loss:.4f} | L_spec: {avg_spec_loss:.4f} | L_cl: {avg_l_cl:.4f} | Alpha: {avg_alpha:.4f}| Feat_Sim: {avg_feat_sim:.4f}")
             print(f"Val HR@10: {avg_hr:.4f} | Val NDCG@10: {avg_ndcg:.4f} | Current LR: {current_lr}")        
             
             # 執行學習率調整：根據目前的 avg_hr 判斷是否需要降速

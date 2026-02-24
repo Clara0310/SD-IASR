@@ -40,12 +40,13 @@ LR_FACTOR=0.5     # 觸發時將學習率乘以 0.1
 LR_PATIENCE=25     # 這是排程器的耐心值（例如 15 次沒進步就降速）
 
 # loss 權重參數
-LAMBDA_1=1.0 # 相似推薦權重
+LAMBDA_1=2.0 # 相似推薦權重
 LAMBDA_2=2.0 # 互補推薦權重
-LAMBDA_REG=0.001 # 提高正則化
-LAMBDA_PROTO=0.1 # 保持去噪
+LAMBDA_REG=0.01 # 提高正則化
+LAMBDA_CL=0.005  # [新增] 對比學習損失的權重係數
+LAMBDA_PROTO=0.01 # 保持去噪
 LAMBDA_SPEC=0.05   # [新增] 溫和譜圖解耦
-TAU=0.2       # 強去噪溫度
+TAU=0.3       # 強去噪溫度
 
 num_prototypes=64 # 全局意圖原型的數量
 
@@ -79,6 +80,7 @@ python run.py \
     --lambda_1 $LAMBDA_1 \
     --lambda_2 $LAMBDA_2 \
     --lambda_reg $LAMBDA_REG \
+    --lambda_cl $LAMBDA_CL \
     --lambda_proto $LAMBDA_PROTO \
     --lambda_spec $LAMBDA_SPEC \
     --num_prototypes $num_prototypes \

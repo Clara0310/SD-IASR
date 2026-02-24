@@ -7,13 +7,14 @@ class SDIASRLoss(nn.Module):
     SD-IASR 專用損失函數模組
     包含 BPR 推薦損失與權重正則化。
     """
-    def __init__(self, lambda_1=1.0, lambda_2=1.0, lambda_reg=0.01, lambda_proto=0.1, lambda_spec=0.05,tau=0.2):
+    def __init__(self, lambda_1=1.0, lambda_2=1.0, lambda_reg=0.01, lambda_proto=0.1, lambda_spec=0.05,lambda_cl=0.005,tau=0.3):
         super(SDIASRLoss, self).__init__()
         self.lambda_1 = lambda_1
         self.lambda_2 = lambda_2
         self.lambda_reg = lambda_reg
-        self.lambda_proto = lambda_proto # [新增] 原型損失權重
+        self.lambda_proto = lambda_proto # 原型損失權重
         self.lambda_spec = lambda_spec # 譜圖層解耦權重
+        self.lambda_cl = lambda_cl # [新增] 微弱對齊權重
         self.tau = tau             # 溫度參數
 
     def bpr_loss(self, scores):
@@ -73,12 +74,16 @@ class SDIASRLoss(nn.Module):
         cos_sim_spec = F.cosine_similarity(r_sim, r_cor, dim=-1)
         l_spec = torch.mean(cos_sim_spec**2)
 
-        # 4. 正則化
+        # 4. [核心新增] 微弱對比學習：確保兩路特徵不至於完全各說各話
+        l_cl = self.calculate_cl_loss(u_sim, u_cor)
+        
+        # 5. 正則化
         reg_loss = sum(torch.norm(param, p=2) for param in model.parameters())
             
         total_loss = (l_seq + self.lambda_1 * l_sim + self.lambda_2 * l_rel) + \
                      self.lambda_reg * reg_loss + \
                      self.lambda_proto * l_proto + \
-                     self.lambda_spec * l_spec
+                     self.lambda_spec * l_spec + \
+                     self.lambda_cl * l_cl # 溫和對齊
                      
-        return total_loss, l_seq, l_proto, l_spec
+        return total_loss, l_seq, l_proto, l_spec, l_cl
