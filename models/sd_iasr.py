@@ -106,8 +106,10 @@ class SDIASR(nn.Module):
         #============================================================
         # 動態門控融合：不再使用固定的 gamma
         gate = self.gamma_gating(initial_embs) # [item_num, 1]
-        x_sim = self.layer_norm(initial_embs + gate * raw_sim)
-        x_cor = self.layer_norm(initial_embs + gate * raw_cor)
+        # x_sim = self.layer_norm(initial_embs + gate * raw_sim)
+        # x_cor = self.layer_norm(initial_embs + gate * raw_cor)
+        x_sim = self.layer_norm(raw_sim)
+        x_cor = self.layer_norm(raw_cor)
         #============================================================
         
         # === 計算兩個空間的特徵相似度  ===
@@ -266,8 +268,10 @@ class SDIASR(nn.Module):
         _, raw_cor = self.spectral_disentangler(initial_embs, adj_cor, adj_cor)
         
         gate = self.gamma_gating(initial_embs)
-        x_sim = self.layer_norm(initial_embs + gate * raw_sim)
-        x_cor = self.layer_norm(initial_embs + gate * raw_cor)
+        # x_sim = self.layer_norm(initial_embs + gate * raw_sim)
+        # x_cor = self.layer_norm(initial_embs + gate * raw_cor)
+        x_sim = self.layer_norm(raw_sim)
+        x_cor = self.layer_norm(raw_cor)
         return x_sim, x_cor
 
     # 新增：接收算好的特徵進行預測
