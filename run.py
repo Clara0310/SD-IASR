@@ -326,7 +326,7 @@ def main():
             val_ndcg_10 = []
             with torch.no_grad():
                 # [關鍵優化] 進入 Batch 迴圈前先算好一次就好！
-                x_sim_all, x_cor_all = model.get_all_item_features(adj_self, adj_dele)
+                x_sim_all, x_cor_all = model.get_all_item_features(adj_sim, adj_cor)
                 
                 for seqs, times, targets, batch_indices in tqdm(val_loader, desc=f"Epoch {epoch} Validating"):
                     seqs, times, targets = seqs.to(device), times.to(device), targets.to(device)
@@ -422,7 +422,7 @@ def main():
     
     with torch.no_grad():
         # [新增] 迴圈外先預計算一次
-        x_sim_all, x_cor_all = model.get_all_item_features(adj_self, adj_dele)
+        x_sim_all, x_cor_all = model.get_all_item_features(adj_sim, adj_cor)
         
         for seqs, times, targets, batch_indices in tqdm(test_loader, desc="Testing"):
             seqs, times, targets = seqs.to(device), times.to(device), targets.to(device)

@@ -255,13 +255,17 @@ class SDIASR(nn.Module):
         return scores # 回傳 [Batch, Num_Items]
     
     
-    # 新增：一次性取得所有商品特徵
-    def get_all_item_features(self, adj_self, adj_dele):
-        all_item_indices = torch.arange(self.item_num).to(adj_self.device)
+    # 一次性取得所有商品特徵
+    def get_all_item_features(self, adj_sim, adj_cor): # 參數名改為一致
+        all_item_indices = torch.arange(self.item_num).to(adj_sim.device)
         initial_embs = self.item_embedding(all_item_indices)
         initial_embs = self.dropout(initial_embs)
-        raw_sim, raw_cor = self.spectral_disentangler(initial_embs, adj_self, adj_dele)
-        gate = self.gamma_gating(initial_embs) # 驗證時也使用門控
+        
+        # [同步修改] 也要改成物理隔離呼叫
+        raw_sim, _ = self.spectral_disentangler(initial_embs, adj_sim, adj_sim)
+        _, raw_cor = self.spectral_disentangler(initial_embs, adj_cor, adj_cor)
+        
+        gate = self.gamma_gating(initial_embs)
         x_sim = self.layer_norm(initial_embs + gate * raw_sim)
         x_cor = self.layer_norm(initial_embs + gate * raw_cor)
         return x_sim, x_cor
