@@ -40,13 +40,14 @@ LR_FACTOR=0.5     # 觸發時將學習率乘以 0.1
 LR_PATIENCE=40     # 這是排程器的耐心值（例如 15 次沒進步就降速）
 
 # loss 權重參數
-LAMBDA_1=5.0 # 相似推薦權重
-LAMBDA_2=5.0 # 互補推薦權重
-LAMBDA_REG=0.001 # 提高正則化
-LAMBDA_CL=0.05  # [新增] 對比學習損失的權重係數
+LAMBDA_1=2.0 # 相似推薦權重
+LAMBDA_2=2.0 # 互補推薦權重
+LAMBDA_REG=0.01 # 提高正則化
+LAMBDA_CL=0.01  # [新增] 對比學習損失的權重係數
 LAMBDA_PROTO=0.01 # 保持去噪
-LAMBDA_SPEC=0.05   # [新增] 溫和譜圖解耦
+LAMBDA_SPEC=0.1   # [新增] 溫和譜圖解耦
 TAU=0.3       # 強去噪溫度
+DROPOUT=0.5 # 防過擬合
 
 num_prototypes=64 # 全局意圖原型的數量
 
@@ -55,8 +56,7 @@ LAMBDA_DIFF=0.01   # 商品層級解耦損失（Item-level Disentangle Loss）�
 GAMMA=0.05        # 圖信號
 
 
-# 提高 Dropout
-DROPOUT=0.3 # 防過擬合
+
 
 # 4. 執行訓練指令
 # 移除了 ALPHA，並加入了 --resume 續跑與 --max_seq_len 參數

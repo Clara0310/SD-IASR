@@ -156,20 +156,35 @@ def main():
     
     
     
-    
+    #======階段二十五=====================================================================
     # 1. 取得兩組邊 (原始格式為 [E, 2])
-    sim_edges = torch.tensor(raw_data['sim_edge_index']) # 例如 [451949, 2]
-    com_edges = torch.tensor(raw_data['com_edge_index']) # 例如 [749935, 2]
+    # sim_edges = torch.tensor(raw_data['sim_edge_index']) # 例如 [451949, 2]
+    # com_edges = torch.tensor(raw_data['com_edge_index']) # 例如 [749935, 2]
 
     # [關鍵修正] 在 dim=0 拼接（垂直疊加邊的清單），並在 dim=0 去重
-    combined_edges = torch.cat([sim_edges, com_edges], dim=0) 
-    combined_edges = torch.unique(combined_edges, dim=0).t() # [加上 .t() 轉置]
+    # combined_edges = torch.cat([sim_edges, com_edges], dim=0) 
+    # combined_edges = torch.unique(combined_edges, dim=0).t() # [加上 .t() 轉置]
 
     # [修改] 替換原有的 create_laplacian 呼叫
-    adj_self, adj_dele = create_sr_matrices(combined_edges, num_items)
-    adj_self, adj_dele = adj_self.to(device), adj_dele.to(device)
-    print(f"SR-Rec matrices generated: Self & Dele")
-    
+    # adj_self, adj_dele = create_sr_matrices(combined_edges, num_items)
+    # adj_self, adj_dele = adj_self.to(device), adj_dele.to(device)
+    # print(f"SR-Rec matrices generated: Self & Dele")
+    #==================================================================================
+    # 1. 取得兩組邊 (不再合併)
+    sim_edges = torch.tensor(raw_data['sim_edge_index']).t().to(device) # [2, E1]
+    com_edges = torch.tensor(raw_data['com_edge_index']).t().to(device) # [2, E2]
+
+    # 2. 物理隔離：分別產生對應通道的矩陣
+    # 相似通道：只使用 sim_edges 產生的 Self 矩陣 (捕捉類別平滑信號)
+    adj_sim, _ = create_sr_matrices(sim_edges, num_items)
+    # 互補通道：只使用 com_edges 產生的 Dele 矩陣 (捕捉跨類別搭配信號)
+    _, adj_cor = create_sr_matrices(com_edges, num_items)
+
+    adj_sim, adj_cor = adj_sim.to(device), adj_cor.to(device)
+    print(f"Stage 26 Physical Isolation: Sim_Edges({sim_edges.shape[1]}), Com_Edges({com_edges.shape[1]})")
+
+
+
 
     # 4. 初始化模型與 Loss
     model = SDIASR(
@@ -271,7 +286,7 @@ def main():
                 
                 # 1. 直接從 model 回傳值中拆解出所有變數
                 # 接收 11 個回傳值 (包含最後的 raw_sim, raw_cor)
-                outputs = model(seqs, times, targets, adj_self, adj_dele)
+                outputs = model(seqs, times, targets, adj_sim, adj_cor)
                 scores, alpha, sim_scores, rel_scores, feat_sim, u_sim, u_cor, p_sim_s, p_cor_s, r_sim, r_cor = outputs
                 # 2. 計算新 Loss (包含 CL)
                 loss, l_seq, l_proto, l_spec, l_cl = criterion(

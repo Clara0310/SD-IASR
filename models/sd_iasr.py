@@ -86,25 +86,22 @@ class SDIASR(nn.Module):
         
         
 
-    def forward(self, seq_indices, time_indices, target_indices, adj_self, adj_dele):
+    def forward(self, seq_indices, time_indices, target_indices, adj_sim, adj_cor):
         """
         seq_indices: 使用者歷史行為序列 [batch, seq_len]
         target_indices: 正樣本與負樣本商品 ID [batch, 1 + neg_num]
-        adj_self & adj_dele: 相似性與互補性圖鄰接矩陣
+        adj_sim & adj_cor: 相似性與互補性圖鄰接矩陣   
         """
         # A. 取得所有商品的基礎嵌入
         all_item_indices = torch.arange(self.item_num).to(seq_indices.device)
-        #initial_embs = self.proj(self.item_embedding(all_item_indices)) # [num_items, emb_dim]
-        # 修改：因為 item_embedding 已經在 load_pretrain_embedding 時被初始化為 emb_dim
-        # 所以這裡不需要再做 self.proj，直接取用即可
         initial_embs = self.item_embedding(all_item_indices) # [num_items, emb_dim]
-        
-        # [新增] 在初始 Embedding 後加 Dropout
+        # 在初始 Embedding 後加 Dropout
         initial_embs = self.dropout(initial_embs)
 
         
         # B. 執行譜解耦：生成相似性特徵 X_sim 與 互補性特徵 X_cor
-        raw_sim, raw_cor = self.spectral_disentangler(initial_embs, adj_self, adj_dele)
+        raw_sim, _ = self.spectral_disentangler(initial_embs, adj_sim, adj_sim)
+        _, raw_cor = self.spectral_disentangler(initial_embs, adj_cor, adj_cor)
         
         #============================================================
         # 動態門控融合：不再使用固定的 gamma
