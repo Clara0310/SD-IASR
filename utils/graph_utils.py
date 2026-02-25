@@ -8,18 +8,17 @@ import scipy.sparse as sp
 # utils/graph_utils.py 
 
 def create_sr_matrices(edge_index, num_nodes):
-    """參考 SR-Rec 的矩陣生成邏輯"""
-
-    
     row, col = edge_index[0].cpu().numpy(), edge_index[1].cpu().numpy()
     adj = sp.coo_matrix((np.ones(row.shape[0]), (row, col)), shape=(num_nodes, num_nodes))
     # 對稱化
     adj = adj + adj.T.multiply(adj.T > adj) - adj.multiply(adj.T > adj)
     
-    # 列歸一化 (Row-normalize)
-    rowsum = np.array(adj.sum(1))
-    r_inv = np.power(rowsum, -1).flatten()
-    r_inv[np.isinf(r_inv)] = 0.
+    # [核心修正] 列歸一化：安全處理度數為 0 的商品
+    rowsum = np.array(adj.sum(1)).flatten()
+    r_inv = np.zeros_like(rowsum)
+    mask = rowsum > 0 # 只對有邊的節點計算倒數
+    r_inv[mask] = np.power(rowsum[mask], -1)
+    
     r_mat_inv = sp.diags(r_inv)
     adj_norm = r_mat_inv.dot(adj)
     
