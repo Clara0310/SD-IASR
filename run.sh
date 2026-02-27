@@ -22,7 +22,7 @@ BERT_DIM=768
 LR=0.0005 #0.001 調小為 0.0005，稍微調降以穩定訓練
 BATCH_SIZE=256
 EPOCHS=1000
-PATIENCE=100
+PATIENCE=150
 MAX_SEQ_LEN=50
 
 # 3. SD-IASR 核心解耦參數
@@ -43,9 +43,9 @@ LR_PATIENCE=50     # 這是排程器的耐心值（例如 15 次沒進步就降�
 LAMBDA_1=5.0 # 相似推薦權重
 LAMBDA_2=5.0 # 互補推薦權重
 LAMBDA_REG=0.01 # 提高正則化
-LAMBDA_CL=0.01  # [新增] 對比學習損失的權重係數
+LAMBDA_CL=0.05  # [新增] 對比學習損失的權重係數
 LAMBDA_PROTO=0.01 # 保持去噪
-LAMBDA_SPEC=0.5   # [新增] 溫和譜圖解耦
+LAMBDA_SPEC=0.2   # [新增] 溫和譜圖解耦
 TAU=0.3       # 強去噪溫度
 DROPOUT=0.3 # 防過擬合
 
