@@ -84,6 +84,9 @@ class SDIASR(nn.Module):
         nn.init.xavier_uniform_(self.sim_prototypes)
         nn.init.xavier_uniform_(self.cor_prototypes)
         
+        # [新增] 初始化為 0.1 的可學習標量參數
+        self.alpha_residual = nn.Parameter(torch.tensor([0.1]))
+        
         
 
     def forward(self, seq_indices, time_indices, target_indices, adj_sim, adj_cor):
@@ -106,9 +109,12 @@ class SDIASR(nn.Module):
         #============================================================
         # 動態門控融合：不再使用固定的 gamma
         gate = self.gamma_gating(initial_embs) # [item_num, 1]
-        # 讓 BERT 語義佔 10% 做地基，譜圖信號佔 90% 做特徵增量
-        x_sim = self.layer_norm(0.1 * initial_embs + raw_sim)
-        x_cor = self.layer_norm(0.1 * initial_embs + raw_cor)
+        
+        
+        # 使用 sigmoid 確保權重在 0~1 之間，或直接使用原始值
+        res_w = torch.sigmoid(self.alpha_residual) 
+        x_sim = self.layer_norm(res_w * initial_embs + raw_sim)
+        x_cor = self.layer_norm(res_w * initial_embs + raw_cor)
         #============================================================
         
         # === 計算兩個空間的特徵相似度  ===
@@ -267,8 +273,10 @@ class SDIASR(nn.Module):
         _, raw_cor = self.spectral_disentangler(initial_embs, adj_cor, adj_cor)
         
         gate = self.gamma_gating(initial_embs)
-        x_sim = self.layer_norm(0.1 * initial_embs + raw_sim)
-        x_cor = self.layer_norm(0.1 * initial_embs + raw_cor)
+        
+        res_w = torch.sigmoid(self.alpha_residual)
+        x_sim = self.layer_norm(res_w * initial_embs + raw_sim)
+        x_cor = self.layer_norm(res_w * initial_embs + raw_cor)
         return x_sim, x_cor
 
     # 新增：接收算好的特徵進行預測

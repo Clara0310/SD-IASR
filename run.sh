@@ -17,7 +17,7 @@ fi
 echo "Running on dataset: $DATASET"
 
 # 2. 模型基礎超參數
-EMB_DIM=128 #提升嵌入維度以增強表達能力
+EMB_DIM=256 #提升嵌入維度以增強表達能力
 BERT_DIM=768
 LR=0.0005 #0.001 調小為 0.0005，稍微調降以穩定訓練
 BATCH_SIZE=256
@@ -31,7 +31,7 @@ LOW_K=5 #2  ，增加低頻傳播步數以捕捉更多鄰居資訊
 MID_K=5 #2  ，增加中頻傳播步數以捕捉更多鄰居資訊
 
 # Transformer 相關參數
-LAYERS=2      # 增加 Transformer 深度
+LAYERS=3      # 增加 Transformer 深度
 NHEAD=8      # 增加注意力頭數以提升模型表達能力
 
 #lr_scheduler 相關參數
@@ -45,7 +45,7 @@ LAMBDA_2=5.0 # 互補推薦權重
 LAMBDA_REG=0.01 # 提高正則化
 LAMBDA_CL=0.05  # [新增] 對比學習損失的權重係數
 LAMBDA_PROTO=0.01 # 保持去噪
-LAMBDA_SPEC=0.2   # [新增] 溫和譜圖解耦
+LAMBDA_SPEC=0.3   # [新增] 溫和譜圖解耦
 TAU=0.3       # 強去噪溫度
 DROPOUT=0.3 # 防過擬合
 

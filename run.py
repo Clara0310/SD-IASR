@@ -156,19 +156,7 @@ def main():
     
     
     
-    #======階段二十五=====================================================================
-    # 1. 取得兩組邊 (原始格式為 [E, 2])
-    # sim_edges = torch.tensor(raw_data['sim_edge_index']) # 例如 [451949, 2]
-    # com_edges = torch.tensor(raw_data['com_edge_index']) # 例如 [749935, 2]
-
-    # [關鍵修正] 在 dim=0 拼接（垂直疊加邊的清單），並在 dim=0 去重
-    # combined_edges = torch.cat([sim_edges, com_edges], dim=0) 
-    # combined_edges = torch.unique(combined_edges, dim=0).t() # [加上 .t() 轉置]
-
-    # [修改] 替換原有的 create_laplacian 呼叫
-    # adj_self, adj_dele = create_sr_matrices(combined_edges, num_items)
-    # adj_self, adj_dele = adj_self.to(device), adj_dele.to(device)
-    # print(f"SR-Rec matrices generated: Self & Dele")
+    
     #==================================================================================
     # 1. 取得兩組邊 (不再合併)
     sim_edges = torch.tensor(raw_data['sim_edge_index']).t().to(device) # [2, E1]
@@ -308,7 +296,17 @@ def main():
                 total_alpha += alpha.mean().item()
                 total_feat_sim += feat_sim.item()
                 
-                pbar.set_postfix({"L_seq": f"{l_seq.item():.4f}", "L_proto": f"{l_proto.item():.3f}", "L_spec": f"{l_spec.item():.3f}","L_cl": f"{l_cl.item():.3f}", "Feat_Sim": f"{feat_sim.item():.2f}"})                
+                pbar.set_postfix({
+                    "L_seq": f"{l_seq.item():.4f}", 
+                    "α_avg": f"{alpha.mean().item():.3f}",  # [新增]
+                    "Spec": f"{l_spec.item():.3f}",
+                    "Sim": f"{feat_sim.item():.2f}"
+                })
+                
+                # 定期記錄 Alpha 分佈 (每 200 個 Batch 印出一次細節)
+                if (len(train_loader) % 200 == 0):
+                    a_val = alpha.detach()
+                    print(f"\n[Alpha Dist] Min: {a_val.min():.4f} | Max: {a_val.max():.4f} | Std: {a_val.std():.4f}")
             
             # 計算平均值
             num_batches = len(train_loader)
