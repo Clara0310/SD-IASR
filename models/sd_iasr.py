@@ -224,43 +224,43 @@ class SDIASR(nn.Module):
 
     # [新增這個方法]
 
-    def predict_full(self, seq_indices, time_indices, adj_self, adj_dele):
-        # 1. 取得 "所有" 商品的 Embedding (0 ~ item_num-1)
-        all_item_indices = torch.arange(self.item_num).to(seq_indices.device)
-        initial_embs = self.item_embedding(all_item_indices)
-        initial_embs = self.dropout(initial_embs)
+    # def predict_full(self, seq_indices, time_indices, adj_self, adj_dele):
+    #     # 1. 取得 "所有" 商品的 Embedding (0 ~ item_num-1)
+    #     all_item_indices = torch.arange(self.item_num).to(seq_indices.device)
+    #     initial_embs = self.item_embedding(all_item_indices)
+    #     initial_embs = self.dropout(initial_embs)
         
         
-        # 2. 執行譜解耦 (算出所有商品的 Sim/Cor 特徵)
-        # [Num_Items, Dim]
-        #x_sim, x_cor = self.spectral_disentangler(initial_embs, sim_laplacian, com_laplacian)
+    #     # 2. 執行譜解耦 (算出所有商品的 Sim/Cor 特徵)
+    #     # [Num_Items, Dim]
+    #     #x_sim, x_cor = self.spectral_disentangler(initial_embs, sim_laplacian, com_laplacian)
         
-        #  變數名要對應新傳入的參數 (adj_self, adj_dele)
-        raw_sim, raw_cor = self.spectral_disentangler(initial_embs, adj_self, adj_dele)
+    #     #  變數名要對應新傳入的參數 (adj_self, adj_dele)
+    #     raw_sim, raw_cor = self.spectral_disentangler(initial_embs, adj_self, adj_dele)
 
-        # 2. [關鍵遺漏] 這裡也要加回 BERT 殘差！否則測試時會完全失去 BERT 資訊
-        x_sim = initial_embs + self.gamma * raw_sim
-        x_cor = initial_embs + self.gamma * raw_cor
+    #     # 2. [關鍵遺漏] 這裡也要加回 BERT 殘差！否則測試時會完全失去 BERT 資訊
+    #     x_sim = initial_embs + self.gamma * raw_sim
+    #     x_cor = initial_embs + self.gamma * raw_cor
     
-        # --- [新增以下兩行] ---
-        x_sim = self.layer_norm(x_sim)
-        x_cor = self.layer_norm(x_cor)
+    #     # --- [新增以下兩行] ---
+    #     x_sim = self.layer_norm(x_sim)
+    #     x_cor = self.layer_norm(x_cor)
         
-        # 3. 取得序列特徵 & User Intent
-        # 這裡會從 x_sim 查表拿出序列裡的商品特徵
-        seq_sim_embs = F.embedding(seq_indices, x_sim)
-        seq_cor_embs = F.embedding(seq_indices, x_cor)
+    #     # 3. 取得序列特徵 & User Intent
+    #     # 這裡會從 x_sim 查表拿出序列裡的商品特徵
+    #     seq_sim_embs = F.embedding(seq_indices, x_sim)
+    #     seq_cor_embs = F.embedding(seq_indices, x_cor)
         
-        mask = (seq_indices == 0)
+    #     mask = (seq_indices == 0)
         
-        # 取得意圖 Tuple: (last, att)
-        sim_intents, cor_intents = self.sequential_encoder(seq_sim_embs, seq_cor_embs, time_indices, mask)
+    #     # 取得意圖 Tuple: (last, att)
+    #     sim_intents, cor_intents = self.sequential_encoder(seq_sim_embs, seq_cor_embs, time_indices, mask)
         
-        # 4. 呼叫加速版的 Predictor
-        # [修正] 直接傳入 tuple，讓 IntentPredictor 自己去解包
-        scores = self.predictor.forward_full(sim_intents, cor_intents, x_sim, x_cor)
+    #     # 4. 呼叫加速版的 Predictor
+    #     # [修正] 直接傳入 tuple，讓 IntentPredictor 自己去解包
+    #     scores = self.predictor.forward_full(sim_intents, cor_intents, x_sim, x_cor)
         
-        return scores # 回傳 [Batch, Num_Items]
+    #     return scores # 回傳 [Batch, Num_Items]
     
     
     # 一次性取得所有商品特徵
