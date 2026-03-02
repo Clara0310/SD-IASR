@@ -85,7 +85,8 @@ class SDIASR(nn.Module):
         nn.init.xavier_uniform_(self.cor_prototypes)
         
         # [新增] 初始化為 0.1 的可學習標量參數
-        self.alpha_residual = nn.Parameter(torch.tensor([0.1]))
+        # 修改後 (如果你希望初始權重是 0.1)
+        self.alpha_residual = nn.Parameter(torch.tensor([-2.2]))
         
         
 

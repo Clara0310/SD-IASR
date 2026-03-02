@@ -304,7 +304,7 @@ def main():
                 })
                 
                 # 定期記錄 Alpha 分佈 (每 200 個 Batch 印出一次細節)
-                if (len(train_loader) % 200 == 0):
+                if (batch_idx % 200 == 0): # 使用 batch_idx 才能每 200 步印一次
                     a_val = alpha.detach()
                     print(f"\n[Alpha Dist] Min: {a_val.min():.4f} | Max: {a_val.max():.4f} | Std: {a_val.std():.4f}")
             
