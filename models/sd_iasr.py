@@ -114,8 +114,10 @@ class SDIASR(nn.Module):
         
         # 使用 sigmoid 確保權重在 0~1 之間，或直接使用原始值
         res_w = torch.sigmoid(self.alpha_residual) 
-        x_sim = self.layer_norm(res_w * initial_embs + raw_sim)
-        x_cor = self.layer_norm(res_w * initial_embs + raw_cor)
+        
+        # 直接 1:1 相加。這確保了所有進入 Transformer 的特徵，都具備 100% 完美的 SASRec 語義底座！
+        x_sim = initial_embs + raw_sim
+        x_cor = initial_embs + raw_cor
         #============================================================
         
         # === 計算兩個空間的特徵相似度  ===
@@ -276,8 +278,11 @@ class SDIASR(nn.Module):
         gate = self.gamma_gating(initial_embs)
         
         res_w = torch.sigmoid(self.alpha_residual)
-        x_sim = self.layer_norm(res_w * initial_embs + raw_sim)
-        x_cor = self.layer_norm(res_w * initial_embs + raw_cor)
+        
+        # 同步修改為 1:1 殘差相加
+        x_sim = initial_embs + raw_sim
+        x_cor = initial_embs + raw_cor
+        
         return x_sim, x_cor
 
     # 新增：接收算好的特徵進行預測
