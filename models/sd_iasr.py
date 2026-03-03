@@ -82,7 +82,7 @@ class SDIASR(nn.Module):
         
         
 
-    def forward(self, seq_indices, time_indices, target_indices, adj_sim, adj_cor):
+    def forward(self, seq_indices, time_indices, target_indices, adj_sim, adj_sim_dele, adj_cor, adj_cor_dele):
         """
         seq_indices: 使用者歷史行為序列 [batch, seq_len]
         target_indices: 正樣本與負樣本商品 ID [batch, 1 + neg_num]
@@ -259,7 +259,7 @@ class SDIASR(nn.Module):
     
     
     # 一次性取得所有商品特徵
-    def get_all_item_features(self, adj_sim, adj_cor): # 參數名改為一致
+    def get_all_item_features(self, adj_sim, adj_sim_dele, adj_cor, adj_cor_dele): # 參數名改為一致
         all_item_indices = torch.arange(self.item_num).to(adj_sim.device)
         initial_embs = self.item_embedding(all_item_indices)
         initial_embs = self.dropout(initial_embs)
