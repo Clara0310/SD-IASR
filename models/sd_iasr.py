@@ -43,14 +43,6 @@ class SDIASR(nn.Module):
         #self.item_embedding = nn.Embedding(item_num, bert_dim)
         #self.proj = nn.Linear(bert_dim, emb_dim)
         
-        # [新增] 動態門控網絡：決定要聽內容(BERT)還是聽圖(Spectral)
-        self.gamma_gating = nn.Sequential(
-            nn.Linear(emb_dim, emb_dim // 2),
-            nn.ReLU(),
-            nn.Linear(emb_dim // 2, 1),
-            nn.Sigmoid()
-        )
-        
         # === 2. 譜關係解耦模組 === (Spectral Disentangling Module)
         self.spectral_disentangler = SpectralDisentangler(
                     item_num, 
@@ -108,16 +100,12 @@ class SDIASR(nn.Module):
         _, raw_cor = self.spectral_disentangler(initial_embs, adj_cor, adj_cor)
         
         #============================================================
-        # 動態門控融合：不再使用固定的 gamma
-        gate = self.gamma_gating(initial_embs) # [item_num, 1]
-        
-        
-        # 使用 sigmoid 確保權重在 0~1 之間，或直接使用原始值
-        res_w = torch.sigmoid(self.alpha_residual) 
-        
-        # 直接 1:1 相加。這確保了所有進入 Transformer 的特徵，都具備 100% 完美的 SASRec 語義底座！
-        x_sim = initial_embs + raw_sim
-        x_cor = initial_embs + raw_cor
+        # 可學習的譜信號強度縮放：alpha_residual 初始化為 -2.2，使得 sigmoid(-2.2) ≈ 0.1
+        # 讓 BERT 嵌入為主，譜信號為輔，並允許訓練過程自動調整比例
+        res_w = torch.sigmoid(self.alpha_residual)
+
+        x_sim = initial_embs + res_w * raw_sim
+        x_cor = initial_embs + res_w * raw_cor
         #============================================================
         
         # === 計算兩個空間的特徵相似度  ===
@@ -275,13 +263,10 @@ class SDIASR(nn.Module):
         raw_sim, _ = self.spectral_disentangler(initial_embs, adj_sim, adj_sim)
         _, raw_cor = self.spectral_disentangler(initial_embs, adj_cor, adj_cor)
         
-        gate = self.gamma_gating(initial_embs)
-        
         res_w = torch.sigmoid(self.alpha_residual)
-        
-        # 同步修改為 1:1 殘差相加
-        x_sim = initial_embs + raw_sim
-        x_cor = initial_embs + raw_cor
+
+        x_sim = initial_embs + res_w * raw_sim
+        x_cor = initial_embs + res_w * raw_cor
         
         return x_sim, x_cor
 

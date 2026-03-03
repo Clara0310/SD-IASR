@@ -7,15 +7,16 @@ class SDIASRLoss(nn.Module):
     SD-IASR 專用損失函數模組
     包含 BPR 推薦損失與權重正則化。
     """
-    def __init__(self, lambda_1=1.0, lambda_2=1.0, lambda_reg=0.01, lambda_proto=0.1, lambda_spec=0.5,lambda_cl=0.005,tau=0.3):
+    def __init__(self, lambda_1=1.0, lambda_2=1.0, lambda_reg=0.01, lambda_proto=0.1, lambda_spec=0.5, lambda_cl=0.005, lambda_alpha=0.5, tau=0.3):
         super(SDIASRLoss, self).__init__()
         self.lambda_1 = lambda_1
         self.lambda_2 = lambda_2
         self.lambda_reg = lambda_reg
         self.lambda_proto = lambda_proto # 原型損失權重
         self.lambda_spec = lambda_spec # 譜圖層解耦權重
-        self.lambda_cl = lambda_cl # [新增] 微弱對齊權重
-        self.tau = tau             # 溫度參數
+        self.lambda_cl = lambda_cl
+        self.lambda_alpha = lambda_alpha  # Alpha 熵正則化權重，防止雙通道崩塌成單通道
+        self.tau = tau
 
     def bpr_loss(self, scores):
         """
@@ -60,30 +61,38 @@ class SDIASRLoss(nn.Module):
         loss = -torch.mean(torch.sum(probs * log_probs, dim=-1))
         return loss
 
-    def forward(self, scores, sim_scores, rel_scores, u_sim, u_cor, p_sim_s, p_cor_s, r_sim, r_cor, model):
-        # 1. BPR 推薦損失 (加入 1e-10 防止數值不穩定)
+    def forward(self, scores, sim_scores, rel_scores, alpha, u_sim, u_cor, p_sim_s, p_cor_s, r_sim, r_cor, model):
+        # 1. BPR 推薦損失
         l_seq = -torch.mean(torch.log(torch.sigmoid(scores[:, 0].unsqueeze(1) - scores[:, 1:]) + 1e-10))
         l_sim = -torch.mean(torch.log(torch.sigmoid(sim_scores[:, 0].unsqueeze(1) - sim_scores[:, 1:]) + 1e-10))
         l_rel = -torch.mean(torch.log(torch.sigmoid(rel_scores[:, 0].unsqueeze(1) - rel_scores[:, 1:]) + 1e-10))
-        
-        # 2. 原型聚類損失 (分流對齊)
+
+        # 2. 原型聚類損失
         l_proto = self.calculate_proto_loss(p_sim_s) + self.calculate_proto_loss(p_cor_s)
-        
-        # 3. [核心新增] 譜圖層正交解耦損失 (從根源推開)
-        # 對 raw_sim 與 raw_cor 進行正交化，確保圖信號不重疊
+
+        # 3. 譜圖層正交解耦損失
         cos_sim_spec = F.cosine_similarity(r_sim, r_cor, dim=-1)
         l_spec = torch.mean(cos_sim_spec**2)
 
-        # 4. [核心新增] 微弱對比學習：確保兩路特徵不至於完全各說各話
-        l_cl = self.calculate_cl_loss(u_sim, u_cor)
-        
-        # 5. 正則化
-        reg_loss = sum(torch.norm(param, p=2) for param in model.parameters())
-            
+        # 4. Alpha 熵正則化：防止 alpha 崩塌至 0 或 1（雙通道退化成單通道）
+        # H(alpha) = -(alpha*log(alpha) + (1-alpha)*log(1-alpha))
+        # 在 alpha=0.5 時最大 (log2≈0.693)，在 alpha=0/1 時為 0
+        # 在 total_loss 中減去 H(alpha)，讓最小化 loss 等效於最大化 H(alpha)
+        H_alpha = -(alpha * torch.log(alpha + 1e-8) + (1 - alpha) * torch.log(1 - alpha + 1e-8))
+        l_alpha = -H_alpha.mean()  # 負熵，最小化此項 = 最大化熵
+
+        # 5. 正則化：只對 weight 矩陣 (非 bias、非 LayerNorm、非 Embedding)
+        reg_loss = sum(
+            torch.norm(param, p=2)
+            for name, param in model.named_parameters()
+            if param.requires_grad and param.dim() >= 2
+            and 'embedding' not in name and 'norm' not in name
+        )
+
         total_loss = (l_seq + self.lambda_1 * l_sim + self.lambda_2 * l_rel) + \
                      self.lambda_reg * reg_loss + \
                      self.lambda_proto * l_proto + \
                      self.lambda_spec * l_spec + \
-                     self.lambda_cl * l_cl # 溫和對齊
-                     
-        return total_loss, l_seq, l_proto, l_spec, l_cl
+                     self.lambda_alpha * l_alpha
+
+        return total_loss, l_seq, l_proto, l_spec, l_alpha

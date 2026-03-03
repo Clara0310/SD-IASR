@@ -15,7 +15,6 @@ from tqdm import tqdm
 from models import SDIASR
 from utils.data_loader import get_loader
 from utils.graph_utils import create_laplacian,create_sr_matrices
-from utils.metrics import get_metrics, print_metrics
 from loss import SDIASRLoss
 
 def main():
@@ -48,6 +47,7 @@ def main():
     parser.add_argument('--lambda_proto', type=float, default=0.01, help='Weight for Prototype loss')
     parser.add_argument('--lambda_spec', type=float, default=0.05, help='Weight for Spectral Orthogonality loss')
     parser.add_argument('--lambda_cl', type=float, default=0.005, help='Weight for Contrastive loss')
+    parser.add_argument('--lambda_alpha', type=float, default=0.5, help='Weight for alpha entropy regularization (prevents channel collapse)')
     parser.add_argument('--tau', type=float, default=0.3, help='Temperature for CL')
    
     
@@ -163,10 +163,10 @@ def main():
     com_edges = torch.tensor(raw_data['com_edge_index']).t().to(device) # [2, E2]
 
     # 2. 物理隔離：分別產生對應通道的矩陣
-    # 相似通道：只使用 sim_edges 產生的 Self 矩陣 (捕捉類別平滑信號)
+    # 相似通道：A_sim + I (帶自環的列歸一化鄰接矩陣，low-pass 用)
     adj_sim, _ = create_sr_matrices(sim_edges, num_items)
-    # 互補通道：只使用 com_edges 產生的 Dele 矩陣 (捕捉跨類別搭配信號)
-    _, adj_cor = create_sr_matrices(com_edges, num_items)
+    # 互補通道：A_cor + I (同樣帶自環，避免對角線為 -1 導致 mid-pass 振盪)
+    adj_cor, _ = create_sr_matrices(com_edges, num_items)
 
     adj_sim, adj_cor = adj_sim.to(device), adj_cor.to(device)
     print(f"Stage 26 Physical Isolation: Sim_Edges({sim_edges.shape[1]}), Com_Edges({com_edges.shape[1]})")
@@ -213,12 +213,13 @@ def main():
 
     # 初始化 Criterion
     criterion = SDIASRLoss(
-        lambda_1=args.lambda_1, 
+        lambda_1=args.lambda_1,
         lambda_2=args.lambda_2,
         lambda_reg=args.lambda_reg,
         lambda_proto=args.lambda_proto,
         lambda_spec=args.lambda_spec,
         lambda_cl=args.lambda_cl,
+        lambda_alpha=args.lambda_alpha,
         tau=args.tau
     )
     
@@ -258,9 +259,9 @@ def main():
         
         for epoch in range(start_epoch, args.epochs):
             model.train()
-            total_loss, total_l_seq, total_l_proto, total_l_spec, total_l_cl = 0, 0, 0, 0, 0 # [修正變數數量]
-            total_alpha = 0     # [新增] 初始化 alpha 累加器
-            total_feat_sim = 0  # [新增] 初始化特徵相似度累加器
+            total_loss, total_l_seq, total_l_proto, total_l_spec, total_l_alpha = 0, 0, 0, 0, 0
+            total_alpha = 0
+            total_feat_sim = 0
             
             
             
@@ -268,18 +269,15 @@ def main():
             pbar = tqdm(train_loader, desc=f"Epoch {epoch} Training")
             for batch_idx, (seqs, times, targets, _) in enumerate(pbar):
                 seqs, times, targets = seqs.to(device), times.to(device), targets.to(device)
-                
+
                 optimizer.zero_grad()
-                
-                
-                # 1. 直接從 model 回傳值中拆解出所有變數
-                # 接收 11 個回傳值 (包含最後的 raw_sim, raw_cor)
+
                 outputs = model(seqs, times, targets, adj_sim, adj_cor)
                 scores, alpha, sim_scores, rel_scores, feat_sim, u_sim, u_cor, p_sim_s, p_cor_s, r_sim, r_cor = outputs
-                # 2. 計算新 Loss (包含 CL)
-                loss, l_seq, l_proto, l_spec, l_cl = criterion(
-                        scores, sim_scores, rel_scores, u_sim, u_cor, p_sim_s, p_cor_s, r_sim, r_cor, model
-                    )
+
+                loss, l_seq, l_proto, l_spec, l_alpha = criterion(
+                    scores, sim_scores, rel_scores, alpha, u_sim, u_cor, p_sim_s, p_cor_s, r_sim, r_cor, model
+                )
                 loss.backward()
                 
                 # [新增] 梯度裁剪：將所有參數的梯度範數限制在 5.0 以內
@@ -287,18 +285,17 @@ def main():
                 
                 optimizer.step()
                 
-                # 累計損失與各項分數
                 total_loss += loss.item()
                 total_l_seq += l_seq.item()
                 total_l_proto += l_proto.item()
                 total_l_spec += l_spec.item()
-                total_l_cl += l_cl.item()
+                total_l_alpha += l_alpha.item()
                 total_alpha += alpha.mean().item()
                 total_feat_sim += feat_sim.item()
-                
+
                 pbar.set_postfix({
-                    "L_seq": f"{l_seq.item():.4f}", 
-                    "α_avg": f"{alpha.mean().item():.3f}",  # [新增]
+                    "L_seq": f"{l_seq.item():.4f}",
+                    "α_avg": f"{alpha.mean().item():.3f}",
                     "Spec": f"{l_spec.item():.3f}",
                     "Sim": f"{feat_sim.item():.2f}"
                 })
@@ -308,13 +305,12 @@ def main():
                     a_val = alpha.detach()
                     print(f"\n[Alpha Dist] Min: {a_val.min():.4f} | Max: {a_val.max():.4f} | Std: {a_val.std():.4f}")
             
-            # 計算平均值
             num_batches = len(train_loader)
             avg_loss = total_loss / num_batches
             avg_l_seq = total_l_seq / num_batches
             avg_proto_loss = total_l_proto / num_batches
             avg_spec_loss = total_l_spec / num_batches
-            avg_l_cl = total_l_cl / num_batches
+            avg_l_alpha = total_l_alpha / num_batches
             avg_alpha = total_alpha / num_batches
             avg_feat_sim = total_feat_sim / num_batches
 
@@ -373,7 +369,7 @@ def main():
             current_lr = optimizer.param_groups[0]['lr']
             
             # --- 完整印出所有指標 ---
-            print(f"Epoch {epoch} | TotalLoss: {avg_loss:.4f} | L_seq: {avg_l_seq:.4f} | L_proto: {avg_proto_loss:.4f} | L_spec: {avg_spec_loss:.4f} | L_cl: {avg_l_cl:.4f} | Alpha: {avg_alpha:.4f}| Feat_Sim: {avg_feat_sim:.4f}")
+            print(f"Epoch {epoch} | TotalLoss: {avg_loss:.4f} | L_seq: {avg_l_seq:.4f} | L_proto: {avg_proto_loss:.4f} | L_spec: {avg_spec_loss:.4f} | L_alpha: {avg_l_alpha:.4f} | Alpha: {avg_alpha:.4f} | Feat_Sim: {avg_feat_sim:.4f}")
             print(f"Val HR@10: {avg_hr:.4f} | Val NDCG@10: {avg_ndcg:.4f} | Current LR: {current_lr}")        
             
             # 執行學習率調整：根據目前的 avg_hr 判斷是否需要降速

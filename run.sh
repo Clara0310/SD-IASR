@@ -54,6 +54,7 @@ num_prototypes=64 # 全局意圖原型的數量
 
 LAMBDA_DIFF=0.01   # 商品層級解耦損失（Item-level Disentangle Loss）的權重係數
 GAMMA=0.05        # 圖信號
+LAMBDA_ALPHA=0.5  # Alpha 熵正則化權重：防止雙通道崩塌成單通道
 
 
 
@@ -81,6 +82,7 @@ python run.py \
     --lambda_2 $LAMBDA_2 \
     --lambda_reg $LAMBDA_REG \
     --lambda_cl $LAMBDA_CL \
+    --lambda_alpha $LAMBDA_ALPHA \
     --lambda_proto $LAMBDA_PROTO \
     --lambda_spec $LAMBDA_SPEC \
     --num_prototypes $num_prototypes \
