@@ -74,6 +74,9 @@ class SDIASRLoss(nn.Module):
         cos_sim_spec = F.cosine_similarity(r_sim, r_cor, dim=-1)
         l_spec = torch.mean(cos_sim_spec**2)
 
+        # 3.5 跨視角對比損失（u_sim 與 u_cor 的 InfoNCE）
+        l_cl = self.calculate_cl_loss(u_sim, u_cor)
+
         # 4. Alpha 熵正則化：防止 alpha 崩塌至 0 或 1（雙通道退化成單通道）
         # H(alpha) = -(alpha*log(alpha) + (1-alpha)*log(1-alpha))
         # 在 alpha=0.5 時最大 (log2≈0.693)，在 alpha=0/1 時為 0
@@ -93,6 +96,7 @@ class SDIASRLoss(nn.Module):
                      self.lambda_reg * reg_loss + \
                      self.lambda_proto * l_proto + \
                      self.lambda_spec * l_spec + \
+                     self.lambda_cl * l_cl + \
                      self.lambda_alpha * l_alpha
 
         return total_loss, l_seq, l_proto, l_spec, l_alpha

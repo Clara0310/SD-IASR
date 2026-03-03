@@ -82,7 +82,7 @@ class SDIASR(nn.Module):
         
         
 
-    def forward(self, seq_indices, time_indices, target_indices, adj_sim, adj_cor):
+    def forward(self, seq_indices, time_indices, target_indices, adj_sim_self, adj_sim_dele, adj_cor_self, adj_cor_dele):
         """
         seq_indices: 使用者歷史行為序列 [batch, seq_len]
         target_indices: 正樣本與負樣本商品 ID [batch, 1 + neg_num]
@@ -96,16 +96,18 @@ class SDIASR(nn.Module):
 
         
         # B. 執行譜解耦：生成相似性特徵 X_sim 與 互補性特徵 X_cor
-        raw_sim, _ = self.spectral_disentangler(initial_embs, adj_sim, adj_sim)
-        _, raw_cor = self.spectral_disentangler(initial_embs, adj_cor, adj_cor)
+        # adj_sim_self=A_sim+I 用於 low-pass；adj_sim_dele=A_sim-I 用於 mid-pass bandpass
+        # adj_cor_self=A_cor+I 與 adj_cor_dele=A_cor-I 同理
+        raw_sim, _ = self.spectral_disentangler(initial_embs, adj_sim_self, adj_sim_dele)
+        _, raw_cor = self.spectral_disentangler(initial_embs, adj_cor_self, adj_cor_dele)
         
         #============================================================
         # 可學習的譜信號強度縮放：alpha_residual 初始化為 -2.2，使得 sigmoid(-2.2) ≈ 0.1
         # 讓 BERT 嵌入為主，譜信號為輔，並允許訓練過程自動調整比例
         res_w = torch.sigmoid(self.alpha_residual)
 
-        x_sim = initial_embs + res_w * raw_sim
-        x_cor = initial_embs + res_w * raw_cor
+        x_sim = self.layer_norm(initial_embs + res_w * raw_sim)
+        x_cor = self.layer_norm(initial_embs + res_w * raw_cor)
         #============================================================
         
         # === 計算兩個空間的特徵相似度  ===
@@ -254,20 +256,19 @@ class SDIASR(nn.Module):
     
     
     # 一次性取得所有商品特徵
-    def get_all_item_features(self, adj_sim, adj_cor): # 參數名改為一致
-        all_item_indices = torch.arange(self.item_num).to(adj_sim.device)
+    def get_all_item_features(self, adj_sim_self, adj_sim_dele, adj_cor_self, adj_cor_dele):
+        all_item_indices = torch.arange(self.item_num).to(adj_sim_self.device)
         initial_embs = self.item_embedding(all_item_indices)
         initial_embs = self.dropout(initial_embs)
-        
-        # [同步修改] 也要改成物理隔離呼叫
-        raw_sim, _ = self.spectral_disentangler(initial_embs, adj_sim, adj_sim)
-        _, raw_cor = self.spectral_disentangler(initial_embs, adj_cor, adj_cor)
+
+        raw_sim, _ = self.spectral_disentangler(initial_embs, adj_sim_self, adj_sim_dele)
+        _, raw_cor = self.spectral_disentangler(initial_embs, adj_cor_self, adj_cor_dele)
         
         res_w = torch.sigmoid(self.alpha_residual)
 
-        x_sim = initial_embs + res_w * raw_sim
-        x_cor = initial_embs + res_w * raw_cor
-        
+        x_sim = self.layer_norm(initial_embs + res_w * raw_sim)
+        x_cor = self.layer_norm(initial_embs + res_w * raw_cor)
+
         return x_sim, x_cor
 
     # 新增：接收算好的特徵進行預測

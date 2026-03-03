@@ -163,12 +163,16 @@ def main():
     com_edges = torch.tensor(raw_data['com_edge_index']).t().to(device) # [2, E2]
 
     # 2. 物理隔離：分別產生對應通道的矩陣
-    # 相似通道：A_sim + I (帶自環的列歸一化鄰接矩陣，low-pass 用)
-    adj_sim, _ = create_sr_matrices(sim_edges, num_items)
-    # 互補通道：A_cor + I (同樣帶自環，避免對角線為 -1 導致 mid-pass 振盪)
-    adj_cor, _ = create_sr_matrices(com_edges, num_items)
+    # create_sr_matrices 回傳 (A+I, A-I)：
+    #   adj_self (A+I)：low-pass 與 mid-pass 的 adj_self 參數
+    #   adj_dele (A-I)：mid-pass bandpass 濾波器的 adj_dele 參數（不可丟棄！）
+    adj_sim_self, adj_sim_dele = create_sr_matrices(sim_edges, num_items)
+    adj_cor_self, adj_cor_dele = create_sr_matrices(com_edges, num_items)
 
-    adj_sim, adj_cor = adj_sim.to(device), adj_cor.to(device)
+    adj_sim_self = adj_sim_self.to(device)
+    adj_sim_dele = adj_sim_dele.to(device)
+    adj_cor_self = adj_cor_self.to(device)
+    adj_cor_dele = adj_cor_dele.to(device)
     print(f"Stage 26 Physical Isolation: Sim_Edges({sim_edges.shape[1]}), Com_Edges({com_edges.shape[1]})")
 
 
@@ -272,7 +276,7 @@ def main():
 
                 optimizer.zero_grad()
 
-                outputs = model(seqs, times, targets, adj_sim, adj_cor)
+                outputs = model(seqs, times, targets, adj_sim_self, adj_sim_dele, adj_cor_self, adj_cor_dele)
                 scores, alpha, sim_scores, rel_scores, feat_sim, u_sim, u_cor, p_sim_s, p_cor_s, r_sim, r_cor = outputs
 
                 loss, l_seq, l_proto, l_spec, l_alpha = criterion(
@@ -320,7 +324,7 @@ def main():
             val_ndcg_10 = []
             with torch.no_grad():
                 # [關鍵優化] 進入 Batch 迴圈前先算好一次就好！
-                x_sim_all, x_cor_all = model.get_all_item_features(adj_sim, adj_cor)
+                x_sim_all, x_cor_all = model.get_all_item_features(adj_sim_self, adj_sim_dele, adj_cor_self, adj_cor_dele)
                 
                 for seqs, times, targets, batch_indices in tqdm(val_loader, desc=f"Epoch {epoch} Validating"):
                     seqs, times, targets = seqs.to(device), times.to(device), targets.to(device)
@@ -416,7 +420,7 @@ def main():
     
     with torch.no_grad():
         # [新增] 迴圈外先預計算一次
-        x_sim_all, x_cor_all = model.get_all_item_features(adj_sim, adj_cor)
+        x_sim_all, x_cor_all = model.get_all_item_features(adj_sim_self, adj_sim_dele, adj_cor_self, adj_cor_dele)
         
         for seqs, times, targets, batch_indices in tqdm(test_loader, desc="Testing"):
             seqs, times, targets = seqs.to(device), times.to(device), targets.to(device)
