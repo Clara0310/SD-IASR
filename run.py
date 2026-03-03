@@ -164,9 +164,11 @@ def main():
 
     # 2. 物理隔離：分別產生對應通道的矩陣
     # 相似通道：A_sim + I (帶自環的列歸一化鄰接矩陣，low-pass 用)
-    adj_sim, _ = create_sr_matrices(sim_edges, num_items)
+    #adj_sim, _ = create_sr_matrices(sim_edges, num_items)
+    adj_sim, adj_sim_dele = create_sr_matrices(sim_edges, num_items)
     # 互補通道：A_cor + I (同樣帶自環，避免對角線為 -1 導致 mid-pass 振盪)
-    adj_cor, _ = create_sr_matrices(com_edges, num_items)
+    #adj_cor, _ = create_sr_matrices(com_edges, num_items)
+    adj_cor, adj_cor_dele = create_sr_matrices(com_edges, num_items)
 
     adj_sim, adj_cor = adj_sim.to(device), adj_cor.to(device)
     print(f"Stage 26 Physical Isolation: Sim_Edges({sim_edges.shape[1]}), Com_Edges({com_edges.shape[1]})")

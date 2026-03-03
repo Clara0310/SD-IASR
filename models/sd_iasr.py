@@ -96,9 +96,10 @@ class SDIASR(nn.Module):
 
         
         # B. 執行譜解耦：生成相似性特徵 X_sim 與 互補性特徵 X_cor
-        raw_sim, _ = self.spectral_disentangler(initial_embs, adj_sim, adj_sim)
-        _, raw_cor = self.spectral_disentangler(initial_embs, adj_cor, adj_cor)
-        
+        # raw_sim, _ = self.spectral_disentangler(initial_embs, adj_sim, adj_sim)
+        # _, raw_cor = self.spectral_disentangler(initial_embs, adj_cor, adj_cor)
+        raw_sim, _ = self.spectral_disentangler(initial_embs, adj_sim, adj_sim_dele)
+        _, raw_cor = self.spectral_disentangler(initial_embs, adj_cor, adj_cor_dele)
         #============================================================
         # 先用 LayerNorm 將兩個通道的譜信號標準化到相同尺度
         # 這解決 low-pass (衰減) 與 mid-pass (放大) 信號幅度差距懸殊 (~400x) 的問題
@@ -264,8 +265,11 @@ class SDIASR(nn.Module):
         initial_embs = self.dropout(initial_embs)
         
         # [同步修改] 也要改成物理隔離呼叫
-        raw_sim, _ = self.spectral_disentangler(initial_embs, adj_sim, adj_sim)
-        _, raw_cor = self.spectral_disentangler(initial_embs, adj_cor, adj_cor)
+        # raw_sim, _ = self.spectral_disentangler(initial_embs, adj_sim, adj_sim)
+        # _, raw_cor = self.spectral_disentangler(initial_embs, adj_cor, adj_cor)
+        raw_sim, _ = self.spectral_disentangler(initial_embs, adj_sim, adj_sim_dele)
+        _, raw_cor = self.spectral_disentangler(initial_embs, adj_cor, adj_cor_dele)
+
 
         raw_sim = self.layer_norm(raw_sim)
         raw_cor = self.layer_norm(raw_cor)
