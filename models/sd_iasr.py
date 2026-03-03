@@ -100,8 +100,12 @@ class SDIASR(nn.Module):
         _, raw_cor = self.spectral_disentangler(initial_embs, adj_cor, adj_cor)
         
         #============================================================
-        # 可學習的譜信號強度縮放：alpha_residual 初始化為 -2.2，使得 sigmoid(-2.2) ≈ 0.1
-        # 讓 BERT 嵌入為主，譜信號為輔，並允許訓練過程自動調整比例
+        # 先用 LayerNorm 將兩個通道的譜信號標準化到相同尺度
+        # 這解決 low-pass (衰減) 與 mid-pass (放大) 信號幅度差距懸殊 (~400x) 的問題
+        raw_sim = self.layer_norm(raw_sim)
+        raw_cor = self.layer_norm(raw_cor)
+
+        # 可學習的譜信號強度縮放：alpha_residual 初始化為 -2.2，sigmoid(-2.2) ≈ 0.1
         res_w = torch.sigmoid(self.alpha_residual)
 
         x_sim = initial_embs + res_w * raw_sim
@@ -262,12 +266,15 @@ class SDIASR(nn.Module):
         # [同步修改] 也要改成物理隔離呼叫
         raw_sim, _ = self.spectral_disentangler(initial_embs, adj_sim, adj_sim)
         _, raw_cor = self.spectral_disentangler(initial_embs, adj_cor, adj_cor)
-        
+
+        raw_sim = self.layer_norm(raw_sim)
+        raw_cor = self.layer_norm(raw_cor)
+
         res_w = torch.sigmoid(self.alpha_residual)
 
         x_sim = initial_embs + res_w * raw_sim
         x_cor = initial_embs + res_w * raw_cor
-        
+
         return x_sim, x_cor
 
     # 新增：接收算好的特徵進行預測

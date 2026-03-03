@@ -91,17 +91,15 @@ class SequentialEncoder(nn.Module):
         # [新增] 時間間隔 Embedding
         self.time_embedding = nn.Embedding(time_span, emb_dim)
         
-        # 使用 nn.TransformerEncoderLayer 配合 num_layers 增加深度
-        encoder_layer = nn.TransformerEncoderLayer(
-                    d_model=emb_dim, 
-                    nhead=nhead, 
-                    batch_first=True,
-                    dropout=dropout # <--- 這裡！
-                )        
-        # 雙通道 Transformer 架構
-        # 相似性通道與互補性通道皆增加深度
-        self.sim_transformer = nn.TransformerEncoder(encoder_layer, num_layers=num_layers)
-        self.cor_transformer = nn.TransformerEncoder(encoder_layer, num_layers=num_layers)
+        # 雙通道 Transformer：分別獨立初始化，確保兩個通道從一開始就走不同的路
+        sim_encoder_layer = nn.TransformerEncoderLayer(
+            d_model=emb_dim, nhead=nhead, batch_first=True, dropout=dropout
+        )
+        cor_encoder_layer = nn.TransformerEncoderLayer(
+            d_model=emb_dim, nhead=nhead, batch_first=True, dropout=dropout
+        )
+        self.sim_transformer = nn.TransformerEncoder(sim_encoder_layer, num_layers=num_layers)
+        self.cor_transformer = nn.TransformerEncoder(cor_encoder_layer, num_layers=num_layers)
         
         self.intent_capture = IntentCapture(emb_dim)
         
