@@ -76,8 +76,9 @@ class SDIASR(nn.Module):
         nn.init.xavier_uniform_(self.sim_prototypes)
         nn.init.xavier_uniform_(self.cor_prototypes)
         
-        # 可學習的譜信號強度：sigmoid(0.0) = 0.5，讓譜信號占 50%
-        self.alpha_residual = nn.Parameter(torch.tensor([0.0]))
+        # 可學習的譜信號強度：sigmoid(2.2) ≈ 0.9，讓譜信號占 90%，BERT 占 10%
+        # 真正的加權混合：x_sim = (1-res_w)*BERT + res_w*spectral
+        self.alpha_residual = nn.Parameter(torch.tensor([2.2]))
         
         
 
@@ -105,11 +106,12 @@ class SDIASR(nn.Module):
         raw_sim = self.layer_norm(raw_sim)
         raw_cor = self.layer_norm(raw_cor)
 
-        # 可學習的譜信號強度縮放：alpha_residual 初始化為 0.0，sigmoid(0.0) = 0.5
+        # 真正的加權混合：(1-res_w)*BERT + res_w*spectral
+        # res_w 初始 ≈ 0.9，讓譜信號主導方向，使 x_sim 與 x_cor 可分離
         res_w = torch.sigmoid(self.alpha_residual)
 
-        x_sim = initial_embs + res_w * raw_sim
-        x_cor = initial_embs + res_w * raw_cor
+        x_sim = (1.0 - res_w) * initial_embs + res_w * raw_sim
+        x_cor = (1.0 - res_w) * initial_embs + res_w * raw_cor
         #============================================================
         
         # === 計算兩個空間的特徵相似度  ===
@@ -211,8 +213,16 @@ class SDIASR(nn.Module):
             
             # 確保之後訓練時可以更新
             self.item_embedding.weight.requires_grad = True
+        
+        # [修正] 凍結初始化專用參數，避免汙染 reg_loss 和浪費 Adam 狀態
+        for param in self.feature_fusion.parameters():
+            param.requires_grad = False
+        for param in self.price_embedding.parameters():
+            param.requires_grad = False
             
         print(f"Successfully fused features and mapped to {self.item_num} items with dim {self.emb_dim}.")
+        print(f"Frozen feature_fusion ({sum(p.numel() for p in self.feature_fusion.parameters())} params) "
+              f"and price_embedding ({sum(p.numel() for p in self.price_embedding.parameters())} params).")
         
         
 
@@ -275,8 +285,8 @@ class SDIASR(nn.Module):
 
         res_w = torch.sigmoid(self.alpha_residual)
 
-        x_sim = initial_embs + res_w * raw_sim
-        x_cor = initial_embs + res_w * raw_cor
+        x_sim = (1.0 - res_w) * initial_embs + res_w * raw_sim
+        x_cor = (1.0 - res_w) * initial_embs + res_w * raw_cor
 
         return x_sim, x_cor
 

@@ -101,7 +101,9 @@ class SequentialEncoder(nn.Module):
         self.sim_transformer = nn.TransformerEncoder(sim_encoder_layer, num_layers=num_layers)
         self.cor_transformer = nn.TransformerEncoder(cor_encoder_layer, num_layers=num_layers)
         
-        self.intent_capture = IntentCapture(emb_dim)
+        # 拆分為雙通道各自獨立的 IntentCapture，避免共用 attention 權重
+        self.sim_intent_capture = IntentCapture(emb_dim)
+        self.cor_intent_capture = IntentCapture(emb_dim)
         
         # 定義 Dropout 層 (用於 Positional Encoding 後)
         self.dropout = nn.Dropout(dropout)
@@ -131,10 +133,10 @@ class SequentialEncoder(nn.Module):
         
         # 通道 1: 處理相似性行為路徑
         sim_out = self.sim_transformer(sim_seq_embs, src_key_padding_mask=mask)
-        u_sim_last, u_sim_att = self.intent_capture(sim_out, mask)
+        u_sim_last, u_sim_att = self.sim_intent_capture(sim_out, mask)
         
         # 通道 2: 處理互補性行為路徑
         cor_out = self.cor_transformer(cor_seq_embs, src_key_padding_mask=mask)
-        u_cor_last, u_cor_att = self.intent_capture(cor_out, mask)
+        u_cor_last, u_cor_att = self.cor_intent_capture(cor_out, mask)
         
         return (u_sim_last, u_sim_att), (u_cor_last, u_cor_att)
