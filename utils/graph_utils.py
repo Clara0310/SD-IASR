@@ -7,10 +7,11 @@ import scipy.sparse as sp
 
 # utils/graph_utils.py 
 
-def create_sr_matrices(edge_index, num_nodes):
+def create_sr_matrices(edge_index, num_nodes, edge_weights=None):
     row, col = edge_index[0].cpu().numpy(), edge_index[1].cpu().numpy()
-    adj = sp.coo_matrix((np.ones(row.shape[0]), (row, col)), shape=(num_nodes, num_nodes))
-    # 對稱化
+    weights = edge_weights if edge_weights is not None else np.ones(row.shape[0])
+    adj = sp.coo_matrix((weights, (row, col)), shape=(num_nodes, num_nodes))
+    # 對稱化（取較大值保留較強的邊）
     adj = adj + adj.T.multiply(adj.T > adj) - adj.multiply(adj.T > adj)
     
     # [核心修正] 列歸一化：安全處理度數為 0 的商品

@@ -34,18 +34,17 @@ MID_K=5 #2  ，增加中頻傳播步數以捕捉更多鄰居資訊
 LAYERS=2      # 增加 Transformer 深度
 NHEAD=8      # 增加注意力頭數以提升模型表達能力
 
-#lr_scheduler 相關參數
-LR_MODE="max"     # 因為指標是 HR@10，所以是越大越好
-LR_FACTOR=0.5     # 觸發時將學習率乘以 0.1 
-LR_PATIENCE=50     # 這是排程器的耐心值（例如 15 次沒進步就降速）
+#lr_scheduler 相關參數 (Warmup + MultiStep)
+WARM_UP_EPOCHS=5          # 前 5 個 epoch 線性增長 LR
+MILESTONES="50,100"       # 在 epoch 50 和 100 降速
+LR_GAMMA=0.5              # 每次降為原來的一半
 
 # loss 權重參數
 LAMBDA_1=1.0 # 相似推薦權重
 LAMBDA_2=1.0 # 互補推薦權重
 LAMBDA_REG=0.01 # 提高正則化
-LAMBDA_CL=0.05  # [新增] 對比學習損失的權重係數
 LAMBDA_PROTO=0.01 # 保持去噪
-LAMBDA_SPEC=0.3   # [新增] 溫和譜圖解耦
+LAMBDA_SPEC=2.0   # 強力推開兩通道（原0.3太弱，Feat_Sim無法降低）
 TAU=0.3       # 強去噪溫度
 DROPOUT=0.3 # 防過擬合
 
@@ -54,6 +53,7 @@ num_prototypes=64 # 全局意圖原型的數量
 
 LAMBDA_DIFF=0.01   # 商品層級解耦損失（Item-level Disentangle Loss）的權重係數
 GAMMA=0.05        # 圖信號
+DECAY_DAYS=0.002  # 時間衰減率（每天）: 1年前的商品權重≈0.48，5年前≈0.03
 LAMBDA_ALPHA=0.5  # Alpha 熵正則化權重：防止雙通道崩塌成單通道
 
 
@@ -71,9 +71,9 @@ python run.py \
     --epochs $EPOCHS \
     --patience $PATIENCE \
     --max_seq_len $MAX_SEQ_LEN \
-    --lr_mode $LR_MODE \
-    --lr_factor $LR_FACTOR \
-    --lr_patience $LR_PATIENCE \
+    --warm_up_epochs $WARM_UP_EPOCHS \
+    --milestones $MILESTONES \
+    --lr_gamma $LR_GAMMA \
     --low_k $LOW_K \
     --mid_k $MID_K \
     --num_layers $LAYERS \
@@ -81,12 +81,12 @@ python run.py \
     --lambda_1 $LAMBDA_1 \
     --lambda_2 $LAMBDA_2 \
     --lambda_reg $LAMBDA_REG \
-    --lambda_cl $LAMBDA_CL \
     --lambda_alpha $LAMBDA_ALPHA \
     --lambda_proto $LAMBDA_PROTO \
     --lambda_spec $LAMBDA_SPEC \
     --num_prototypes $num_prototypes \
     --tau $TAU \
     --dropout $DROPOUT \
+    --decay_days $DECAY_DAYS \
     --gpu 0 \
     "$@" #彈性接收指令的參數（ex. resume or not）

@@ -1,6 +1,4 @@
 import datetime
-from html import parser
-from xml.parsers.expat import model
 import torch
 import torch.optim as optim
 import torch.nn.functional as F  # [新增或確認這行]
@@ -46,22 +44,22 @@ def main():
     parser.add_argument('--lambda_reg', type=float, default=0.01, help='Regularization weight')
     parser.add_argument('--lambda_proto', type=float, default=0.01, help='Weight for Prototype loss')
     parser.add_argument('--lambda_spec', type=float, default=0.05, help='Weight for Spectral Orthogonality loss')
-    parser.add_argument('--lambda_cl', type=float, default=0.005, help='Weight for Contrastive loss')
     parser.add_argument('--lambda_alpha', type=float, default=0.5, help='Weight for alpha entropy regularization (prevents channel collapse)')
     parser.add_argument('--tau', type=float, default=0.3, help='Temperature for CL')
    
     
     parser.add_argument('--gamma', type=float, default=0.1, help='Spectral signal ratio')
+    parser.add_argument('--decay_days', type=float, default=0.002, help='Temporal decay rate per day for edge weights (0=no decay)')
     
     # 新增Dropout 參數
     parser.add_argument('--dropout', type=float, default=0.1, help='Dropout rate')
     
     parser.add_argument('--max_seq_len', type=int, default=50)
     
-    #lr_scheduler 相關參數
-    parser.add_argument('--lr_mode', type=str, default='max', help='Scheduler mode (min or max)')
-    parser.add_argument('--lr_factor', type=float, default=0.5, help='Learning rate reduction factor')
-    parser.add_argument('--lr_patience', type=int, default=5, help='Scheduler patience (epochs to wait before reduction)')
+    #lr_scheduler 相關參數 (Warmup + MultiStep)
+    parser.add_argument('--warm_up_epochs', type=int, default=5, help='Linear warmup epochs')
+    parser.add_argument('--milestones', type=str, default='50,100', help='Comma-separated epoch milestones for LR decay')
+    parser.add_argument('--lr_gamma', type=float, default=0.5, help='LR decay factor at each milestone')
     
     # 續跑功能開關
     parser.add_argument('--resume', action='store_true', help='是否從上次的最佳權重續跑')
@@ -162,19 +160,46 @@ def main():
     sim_edges = torch.tensor(raw_data['sim_edge_index']).t().to(device) # [2, E1]
     com_edges = torch.tensor(raw_data['com_edge_index']).t().to(device) # [2, E2]
 
-    # 2. 物理隔離：分別產生對應通道的矩陣
-    # 相似通道：A_sim + I (帶自環的列歸一化鄰接矩陣，low-pass 用)
-    #adj_sim, _ = create_sr_matrices(sim_edges, num_items)
-    adj_sim, adj_sim_dele = create_sr_matrices(sim_edges, num_items)
-    # 互補通道：A_cor + I (同樣帶自環，避免對角線為 -1 導致 mid-pass 振盪)
-    #adj_cor, _ = create_sr_matrices(com_edges, num_items)
-    adj_cor, adj_cor_dele = create_sr_matrices(com_edges, num_items)
+    # 2. 時間衰減邊權重：根據商品在訓練序列中的最近互動時間加權
+    sim_weights = None
+    com_weights = None
+    if args.decay_days > 0:
+        print("Computing temporal decay edge weights...")
+        # 計算每個商品最近一次被互動的時間
+        item_latest_time = np.zeros(num_items)
+        global_max_time = 0
+        for entry in raw_data['train_set']:
+            seq, times = list(entry[0]), list(entry[1])
+            for item_id, t in zip(seq, times):
+                item_latest_time[item_id] = max(item_latest_time[item_id], t)
+                global_max_time = max(global_max_time, t)
+
+        # 計算每個商品的新近度分數
+        days_since = (global_max_time - item_latest_time) / 86400.0  # 轉換為天數
+        item_recency = np.exp(-args.decay_days * days_since)
+        item_recency[item_latest_time == 0] = 0.01  # 從未出現在序列中的商品給最低權重
+
+        # 對每條邊：權重 = 兩端商品新近度的幾何平均
+        sim_rows = sim_edges[0].cpu().numpy()
+        sim_cols = sim_edges[1].cpu().numpy()
+        sim_weights = np.sqrt(item_recency[sim_rows] * item_recency[sim_cols])
+
+        com_rows = com_edges[0].cpu().numpy()
+        com_cols = com_edges[1].cpu().numpy()
+        com_weights = np.sqrt(item_recency[com_rows] * item_recency[com_cols])
+
+        print(f"Edge weight stats - Sim: mean={sim_weights.mean():.4f}, min={sim_weights.min():.4f}, max={sim_weights.max():.4f}")
+        print(f"Edge weight stats - Com: mean={com_weights.mean():.4f}, min={com_weights.min():.4f}, max={com_weights.max():.4f}")
+
+    # 3. 物理隔離：分別產生對應通道的矩陣（帶時間衰減邊權）
+    adj_sim, adj_sim_dele = create_sr_matrices(sim_edges, num_items, edge_weights=sim_weights)
+    adj_cor, adj_cor_dele = create_sr_matrices(com_edges, num_items, edge_weights=com_weights)
 
     adj_sim     = adj_sim.to(device)
     adj_sim_dele = adj_sim_dele.to(device)
     adj_cor     = adj_cor.to(device)
     adj_cor_dele = adj_cor_dele.to(device)
-    print(f"Stage 26 Physical Isolation: Sim_Edges({sim_edges.shape[1]}), Com_Edges({com_edges.shape[1]})")
+    print(f"Physical Isolation: Sim_Edges({sim_edges.shape[1]}), Com_Edges({com_edges.shape[1]})")
 
 
 
@@ -223,22 +248,29 @@ def main():
         lambda_reg=args.lambda_reg,
         lambda_proto=args.lambda_proto,
         lambda_spec=args.lambda_spec,
-        lambda_cl=args.lambda_cl,
         lambda_alpha=args.lambda_alpha,
         tau=args.tau
     )
     
     optimizer = optim.Adam(model.parameters(), lr=args.lr)
 
-    # 加入學習率排程器
-    # 當 Val HR@10 超過 5 個 Epoch 沒有進步時，將學習率縮小為一半 (0.5)
-    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
-        optimizer, 
-        mode=args.lr_mode, 
-        factor=args.lr_factor, 
-        patience=args.lr_patience, 
-        verbose=True
-    )
+    # 學習率排程器：Warmup + MultiStep（參考 STIRec）
+    # Warmup 階段線性增長 LR，之後在指定 milestone 降速
+    milestones = [int(m) for m in args.milestones.split(',')]
+    warm_up_epochs = args.warm_up_epochs
+    lr_gamma = args.lr_gamma
+
+    def lr_lambda(epoch):
+        if epoch < warm_up_epochs:
+            return (epoch + 1) / warm_up_epochs  # 線性 warmup
+        factor = 1.0
+        for m in milestones:
+            if epoch >= m:
+                factor *= lr_gamma
+        return factor
+
+    scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda)
+    print(f"LR Scheduler: Warmup {warm_up_epochs} epochs → MultiStep at {milestones} with gamma={lr_gamma}")
 
     
     best_hr = 0
@@ -250,9 +282,13 @@ def main():
 
     if args.resume and load_resume_path and os.path.exists(load_resume_path):
         print(f"找到現有權重，正在從 {load_resume_path} 載入並續跑...")
-        checkpoint = torch.load(load_resume_path)
-        model.load_state_dict(checkpoint)
-        print("權重載入成功！")
+        checkpoint = torch.load(load_resume_path, map_location=device)
+        model.load_state_dict(checkpoint['model_state_dict'])
+        optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+        scheduler.load_state_dict(checkpoint['scheduler_state_dict'])
+        best_hr = checkpoint['best_hr']
+        start_epoch = checkpoint['epoch'] + 1
+        print(f"續跑成功！從 Epoch {start_epoch} 繼續，目前最佳 HR@10={best_hr:.4f}")
     elif args.resume:
         print(f"警告：設定了 --resume 但找不到模型檔案 {load_resume_path}，將從頭開始訓練。")
     # ----------------------------------
@@ -377,14 +413,20 @@ def main():
             print(f"Epoch {epoch} | TotalLoss: {avg_loss:.4f} | L_seq: {avg_l_seq:.4f} | L_proto: {avg_proto_loss:.4f} | L_spec: {avg_spec_loss:.4f} | L_alpha: {avg_l_alpha:.4f} | Alpha: {avg_alpha:.4f} | Feat_Sim: {avg_feat_sim:.4f}")
             print(f"Val HR@10: {avg_hr:.4f} | Val NDCG@10: {avg_ndcg:.4f} | Current LR: {current_lr}")        
             
-            # 執行學習率調整：根據目前的 avg_hr 判斷是否需要降速
-            scheduler.step(avg_hr)
+            # 執行學習率調整：每個 epoch 結束後 step
+            scheduler.step()
             
             # Early Stopping 與權重儲存
             if avg_hr > best_hr:
                 best_hr = avg_hr
                 early_stop_count = 0
-                torch.save(model.state_dict(), model_save_path)
+                torch.save({
+                    'model_state_dict': model.state_dict(),
+                    'optimizer_state_dict': optimizer.state_dict(),
+                    'scheduler_state_dict': scheduler.state_dict(),
+                    'best_hr': best_hr,
+                    'epoch': epoch,
+                }, model_save_path)
                 print(f"New best model saved to {model_save_path}")
             else:
                 early_stop_count += 1
@@ -406,7 +448,11 @@ def main():
         load_path = model_save_path
 
     if os.path.exists(load_path):
-        model.load_state_dict(torch.load(load_path))
+        checkpoint = torch.load(load_path, map_location=device)
+        if isinstance(checkpoint, dict) and 'model_state_dict' in checkpoint:
+            model.load_state_dict(checkpoint['model_state_dict'])
+        else:
+            model.load_state_dict(checkpoint)  # 相容舊格式
         print(f"Loaded best model from {load_path}")
     else:
         print(f"Error: Model file not found at {load_path}")
