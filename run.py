@@ -361,17 +361,17 @@ def main():
             val_ndcg_10 = []
             with torch.no_grad():
                 # [關鍵優化] 進入 Batch 迴圈前先算好一次就好！
-                x_sim_all, x_cor_all = model.get_all_item_features(adj_sim, adj_sim_dele, adj_cor, adj_cor_dele)
-                
+                x_sim_all, x_cor_all, raw_sim_all, raw_cor_all = model.get_all_item_features(adj_sim, adj_sim_dele, adj_cor, adj_cor_dele)
+
                 for seqs, times, targets, batch_indices in tqdm(val_loader, desc=f"Epoch {epoch} Validating"):
                     seqs, times, targets = seqs.to(device), times.to(device), targets.to(device)
-                    
+
                     # targets 現在只有 [Batch, 1]，就是正確答案
                     target_pos = targets.squeeze() # [Batch]
-                    
+
                     # 1. 算出所有商品的分數 [Batch, Num_Items]
                     # 改呼叫 fast 版本，傳入緩存的特徵
-                    scores = model.predict_full_fast(seqs, times, x_sim_all, x_cor_all)
+                    scores = model.predict_full_fast(seqs, times, x_sim_all, x_cor_all, raw_sim_all, raw_cor_all)
                     
                     
                     # 2. 取得正確答案的分數
@@ -467,20 +467,19 @@ def main():
     
     with torch.no_grad():
         # [新增] 迴圈外先預計算一次
-        x_sim_all, x_cor_all = model.get_all_item_features(adj_sim, adj_sim_dele, adj_cor, adj_cor_dele)
+        x_sim_all, x_cor_all, raw_sim_all, raw_cor_all = model.get_all_item_features(adj_sim, adj_sim_dele, adj_cor, adj_cor_dele)
 
         for seqs, times, targets, batch_indices in tqdm(test_loader, desc="Testing"):
             seqs, times, targets = seqs.to(device), times.to(device), targets.to(device)
-            
+
             # targets 在全排名模式下只有 [Batch, 1]，就是正確答案
-            target_pos = targets.squeeze() 
+            target_pos = targets.squeeze()
             # 處理 batch_size=1 的邊緣情況
             if target_pos.dim() == 0:
                 target_pos = target_pos.unsqueeze(0)
-            
+
             # 1. [關鍵] 呼叫 predict_full 算出所有商品的分數 [Batch, Num_Items]
-            # [修改] 改呼叫快速版本
-            scores = model.predict_full_fast(seqs, times, x_sim_all, x_cor_all)
+            scores = model.predict_full_fast(seqs, times, x_sim_all, x_cor_all, raw_sim_all, raw_cor_all)
             
             
             # 2. 取得正確答案的分數

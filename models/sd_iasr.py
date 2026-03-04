@@ -129,6 +129,13 @@ class SDIASR(nn.Module):
         # 這會與 SequentialEncoder 內的 nn.TransformerEncoder 完美對齊
         mask = (seq_indices == 0)
 
+        # D2. 計算用戶譜特徵簽名：每個用戶歷史商品的譜信號平均
+        # raw_sim ⊥ raw_cor (cos≈0.03)，所以這兩個簽名天然有區分度
+        mask_float = (~mask).unsqueeze(-1).float()  # [batch, seq_len, 1]
+        seq_len_sum = mask_float.sum(dim=1).clamp(min=1)  # [batch, 1]
+        user_spec_sim = (F.embedding(seq_indices, raw_sim) * mask_float).sum(dim=1) / seq_len_sum
+        user_spec_cor = (F.embedding(seq_indices, raw_cor) * mask_float).sum(dim=1) / seq_len_sum
+
         # E. 雙通道序列編碼：捕捉近期與全局意圖
         sim_intents, cor_intents = self.sequential_encoder(seq_sim_embs, seq_cor_embs, time_indices, mask)
         u_sim, u_cor = sim_intents[1], cor_intents[1] # 全局意圖向量
@@ -136,14 +143,16 @@ class SDIASR(nn.Module):
         # [核心升級] 分流對齊：相似意圖對齊相似中心，互補意圖對齊互補中心
         proto_sim_scores = torch.matmul(u_sim, self.sim_prototypes.t())
         proto_cor_scores = torch.matmul(u_cor, self.cor_prototypes.t())
-        
+
         # F. 取得候選商品的特徵 (同樣經過譜解耦)
         target_sim_embs = F.embedding(target_indices, x_sim) # [batch, 1+neg, emb_dim]
         target_cor_embs = F.embedding(target_indices, x_cor)
-        
 
-        # G. 意圖預測與自適應融合
-        scores, alpha, sim_scores, rel_scores = self.predictor(sim_intents, cor_intents, target_sim_embs, target_cor_embs)
+        # G. 意圖預測與自適應融合（加入譜特徵簽名供 alpha_net 使用）
+        scores, alpha, sim_scores, rel_scores = self.predictor(
+            sim_intents, cor_intents, target_sim_embs, target_cor_embs,
+            user_spec_sim, user_spec_cor
+        )
         # [修改回傳值] 加入 raw_sim, raw_cor 供譜圖解耦損失使用
         return scores, alpha, sim_scores, rel_scores, feat_sim, u_sim, u_cor, proto_sim_scores, proto_cor_scores, raw_sim, raw_cor
       
@@ -288,12 +297,19 @@ class SDIASR(nn.Module):
         x_sim = initial_embs + res_w * raw_sim
         x_cor = initial_embs + res_w * raw_cor
 
-        return x_sim, x_cor
+        return x_sim, x_cor, raw_sim, raw_cor
 
     # 新增：接收算好的特徵進行預測
-    def predict_full_fast(self, seq_indices, time_indices, x_sim, x_cor):
+    def predict_full_fast(self, seq_indices, time_indices, x_sim, x_cor, raw_sim, raw_cor):
         seq_sim_embs = F.embedding(seq_indices, x_sim)
         seq_cor_embs = F.embedding(seq_indices, x_cor)
         mask = (seq_indices == 0)
+
+        # 計算用戶譜特徵簽名（與 forward 邏輯一致）
+        mask_float = (~mask).unsqueeze(-1).float()
+        seq_len_sum = mask_float.sum(dim=1).clamp(min=1)
+        user_spec_sim = (F.embedding(seq_indices, raw_sim) * mask_float).sum(dim=1) / seq_len_sum
+        user_spec_cor = (F.embedding(seq_indices, raw_cor) * mask_float).sum(dim=1) / seq_len_sum
+
         sim_intents, cor_intents = self.sequential_encoder(seq_sim_embs, seq_cor_embs, time_indices, mask)
-        return self.predictor.forward_full(sim_intents, cor_intents, x_sim, x_cor)
+        return self.predictor.forward_full(sim_intents, cor_intents, x_sim, x_cor, user_spec_sim, user_spec_cor)

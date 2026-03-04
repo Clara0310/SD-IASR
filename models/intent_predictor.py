@@ -13,8 +13,10 @@ class IntentPredictor(nn.Module):
         self.dropout = nn.Dropout(dropout)
 
         # 動態權重分配網路 (用於計算 alpha)
+        # 輸入 = [u_sim_last, u_sim_att, u_cor_last, u_cor_att, user_spec_sim, user_spec_cor]
+        # 後兩者是用戶的譜特徵簽名（raw_sim/raw_cor 的序列平均），提供真正有區分度的通道資訊
         self.alpha_net = nn.Sequential(
-            nn.Linear(emb_dim * 4, emb_dim),
+            nn.Linear(emb_dim * 6, emb_dim),
             nn.ReLU(),
             nn.Dropout(dropout),
             nn.Linear(emb_dim, 1),
@@ -36,38 +38,29 @@ class IntentPredictor(nn.Module):
         nn.init.xavier_uniform_(self.fusion_sim.weight)
         nn.init.xavier_uniform_(self.fusion_rel.weight)
         
-    def forward(self, sim_intents, rel_intents, target_sim_embs, target_cor_embs):
+    def forward(self, sim_intents, rel_intents, target_sim_embs, target_cor_embs, user_spec_sim, user_spec_cor):
         """
         sim_intents: (u_sim_last, u_sim_att)
         rel_intents: (u_rel_last, u_rel_att)
         target_sim_embs: 候選商品的相似性嵌入 [batch, neg_num + 1, emb_dim]
         target_cor_embs: 候選商品的互補性嵌入 [batch, neg_num + 1, emb_dim]
+        user_spec_sim: 用戶的相似性譜特徵簽名 [batch, emb_dim]
+        user_spec_cor: 用戶的互補性譜特徵簽名 [batch, emb_dim]
         """
         u_sim_last, u_sim_att = sim_intents
         u_rel_last, u_rel_att = rel_intents
 
-
-        # --- [修改] 意圖融合：從「加法」改為「拼接 + 線性層」 ---
-        # 1. 意圖融合：結合近期與全局資訊
-        # 這裡採用加和或拼接後的線性轉換，確保與候選商品維度一致
-        #u_sim = self.dropout(u_sim_last + u_sim_att)
-        #u_rel = self.dropout(u_rel_last + u_rel_att)
-        
-        # 相似性意圖融合
+        # 1. 意圖融合：拼接 + 線性層
         u_sim = self.fusion_sim(torch.cat([u_sim_last, u_sim_att], dim=-1))
         u_sim = self.dropout(u_sim)
-        
-        # 互補性意圖融合
+
         u_rel = self.fusion_rel(torch.cat([u_rel_last, u_rel_att], dim=-1))
         u_rel = self.dropout(u_rel)
-        # ---------------------------------------------------
-        
-        
-        
 
         # 2. 計算動態權重 alpha
-        # 融合四個意圖特徵來判斷當前使用者受哪種關係影響較大
-        combined_context = torch.cat([u_sim_last, u_sim_att, u_rel_last, u_rel_att], dim=-1)
+        # 加入用戶譜特徵簽名，提供真正有區分度的通道資訊（raw_sim ⊥ raw_cor, cos≈0.03）
+        combined_context = torch.cat([u_sim_last, u_sim_att, u_rel_last, u_rel_att,
+                                      user_spec_sim, user_spec_cor], dim=-1)
         alpha = self.alpha_net(combined_context) # [batch, 1]
 
         # 3. 計算雙視角得分
@@ -94,17 +87,16 @@ class IntentPredictor(nn.Module):
     # [新增這個方法]
     # [請將此方法加入 models/intent_predictor.py 的 IntentPredictor 類別中]
     
-    def forward_full(self, sim_intents, rel_intents, all_sim_embs, all_cor_embs):
+    def forward_full(self, sim_intents, rel_intents, all_sim_embs, all_cor_embs, user_spec_sim, user_spec_cor):
         """
         全矩陣加速運算 (配合你的 AlphaNet 和 Bilinear Layer)
         """
-        # 1. 解包 Intent (因為你的模型回傳的是 tuple)
         u_sim_last, u_sim_att = sim_intents
         u_rel_last, u_rel_att = rel_intents
 
-        # 2. 計算 Alpha (使用你的 self.alpha_net)
-        # 你的模型需要把這四個接起來才能算 alpha
-        combined_context = torch.cat([u_sim_last, u_sim_att, u_rel_last, u_rel_att], dim=-1)
+        # 計算 Alpha：加入譜特徵簽名
+        combined_context = torch.cat([u_sim_last, u_sim_att, u_rel_last, u_rel_att,
+                                      user_spec_sim, user_spec_cor], dim=-1)
         alpha = self.alpha_net(combined_context) # [Batch, 1]
 
         # === [關鍵修正] 修改意圖融合方式，使其與 forward 一致 ===
