@@ -76,9 +76,9 @@ class SDIASR(nn.Module):
         nn.init.xavier_uniform_(self.sim_prototypes)
         nn.init.xavier_uniform_(self.cor_prototypes)
         
-        # 可學習的譜信號強度：sigmoid(1.0) ≈ 0.73，讓譜信號占 73%，BERT 占 27%
-        # 真正的加權混合：x_sim = (1-res_w)*BERT + res_w*spectral
-        self.alpha_residual = nn.Parameter(torch.tensor([1.0]))
+        # 可學習的譜信號強度：sigmoid(0.0) = 0.5，讓 BERT 全量保留，加上 0.5 倍譜信號
+        # 加法公式：x_sim = BERT + res_w * spectral（BERT 作為穩定基底，避免早期訓練崩潰）
+        self.alpha_residual = nn.Parameter(torch.tensor([0.0]))
         
         
 
@@ -106,12 +106,12 @@ class SDIASR(nn.Module):
         raw_sim = self.layer_norm(raw_sim)
         raw_cor = self.layer_norm(raw_cor)
 
-        # 真正的加權混合：(1-res_w)*BERT + res_w*spectral
-        # res_w 初始 ≈ 0.9，讓譜信號主導方向，使 x_sim 與 x_cor 可分離
+        # 加法公式：BERT 全量保留作為穩定基底，加上可學習強度的譜信號
+        # res_w 初始 = 0.5，譜信號對 x_sim 與 x_cor 的影響不同（一個用 raw_sim，一個用 raw_cor）
         res_w = torch.sigmoid(self.alpha_residual)
 
-        x_sim = (1.0 - res_w) * initial_embs + res_w * raw_sim
-        x_cor = (1.0 - res_w) * initial_embs + res_w * raw_cor
+        x_sim = initial_embs + res_w * raw_sim
+        x_cor = initial_embs + res_w * raw_cor
         #============================================================
         
         # === 計算兩個空間的特徵相似度  ===
@@ -285,8 +285,8 @@ class SDIASR(nn.Module):
 
         res_w = torch.sigmoid(self.alpha_residual)
 
-        x_sim = (1.0 - res_w) * initial_embs + res_w * raw_sim
-        x_cor = (1.0 - res_w) * initial_embs + res_w * raw_cor
+        x_sim = initial_embs + res_w * raw_sim
+        x_cor = initial_embs + res_w * raw_cor
 
         return x_sim, x_cor
 
