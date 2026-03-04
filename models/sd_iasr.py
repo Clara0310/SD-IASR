@@ -148,13 +148,13 @@ class SDIASR(nn.Module):
         target_sim_embs = F.embedding(target_indices, x_sim) # [batch, 1+neg, emb_dim]
         target_cor_embs = F.embedding(target_indices, x_cor)
 
-        # G. 意圖預測與自適應融合（加入譜特徵簽名供 alpha_net 使用）
-        scores, alpha, sim_scores, rel_scores = self.predictor(
+        # G. 四分支意圖預測與自適應融合
+        scores, weights, sim_scores, rel_scores = self.predictor(
             sim_intents, cor_intents, target_sim_embs, target_cor_embs,
             user_spec_sim, user_spec_cor
         )
         # [修改回傳值] 加入 raw_sim, raw_cor 供譜圖解耦損失使用
-        return scores, alpha, sim_scores, rel_scores, feat_sim, u_sim, u_cor, proto_sim_scores, proto_cor_scores, raw_sim, raw_cor
+        return scores, weights, sim_scores, rel_scores, feat_sim, u_sim, u_cor, proto_sim_scores, proto_cor_scores, raw_sim, raw_cor
       
     def load_pretrain_embedding(self, cid2_emb, cid3_emb, item_to_cid, item_to_price):
         

@@ -1,43 +1,34 @@
-# 新增：差異化計分函數與動態權重 α
+# 四分支意圖預測器：{短期, 長期} × {相似, 互補}
 
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
 class IntentPredictor(nn.Module):
-    def __init__(self, emb_dim,dropout=0.0):
+    def __init__(self, emb_dim, dropout=0.0):
         super(IntentPredictor, self).__init__()
         self.emb_dim = emb_dim
-        
-        # 定義 Dropout 層
+
         self.dropout = nn.Dropout(dropout)
 
-        # 動態權重分配網路 (用於計算 alpha)
+        # 四維意圖權重網路：輸出 4 個分支的權重
         # 輸入 = [u_sim_last, u_sim_att, u_cor_last, u_cor_att, user_spec_sim, user_spec_cor]
-        # 後兩者是用戶的譜特徵簽名（raw_sim/raw_cor 的序列平均），提供真正有區分度的通道資訊
-        self.alpha_net = nn.Sequential(
+        # 輸出 = [w_sim_short, w_sim_long, w_cor_short, w_cor_long]
+        self.intent_net = nn.Sequential(
             nn.Linear(emb_dim * 6, emb_dim),
             nn.ReLU(),
             nn.Dropout(dropout),
-            nn.Linear(emb_dim, 1),
-            nn.Sigmoid()
+            nn.Linear(emb_dim, 4),
+            # 不加 Softmax，在 forward 中用 F.softmax 以便控制 temperature
         )
 
-        # 雙線性轉換矩陣 (用於計算不同空間的互動分數)
+        # 雙線性轉換矩陣（sim 和 cor 各一組，short/long 共用同一組 W）
         self.w_sim = nn.Parameter(torch.FloatTensor(emb_dim, emb_dim))
         self.w_rel = nn.Parameter(torch.FloatTensor(emb_dim, emb_dim))
-        
-        # [新增] 定義融合層，將拼接後的 2*emb_dim 壓縮回 emb_dim
-        self.fusion_sim = nn.Linear(emb_dim * 2, emb_dim)
-        self.fusion_rel = nn.Linear(emb_dim * 2, emb_dim)
-        
+
         nn.init.xavier_uniform_(self.w_sim)
         nn.init.xavier_uniform_(self.w_rel)
 
-        # 初始化權重
-        nn.init.xavier_uniform_(self.fusion_sim.weight)
-        nn.init.xavier_uniform_(self.fusion_rel.weight)
-        
     def forward(self, sim_intents, rel_intents, target_sim_embs, target_cor_embs, user_spec_sim, user_spec_cor):
         """
         sim_intents: (u_sim_last, u_sim_att)
@@ -50,83 +41,66 @@ class IntentPredictor(nn.Module):
         u_sim_last, u_sim_att = sim_intents
         u_rel_last, u_rel_att = rel_intents
 
-        # 1. 意圖融合：拼接 + 線性層
-        u_sim = self.fusion_sim(torch.cat([u_sim_last, u_sim_att], dim=-1))
-        u_sim = self.dropout(u_sim)
-
-        u_rel = self.fusion_rel(torch.cat([u_rel_last, u_rel_att], dim=-1))
-        u_rel = self.dropout(u_rel)
-
-        # 2. 計算動態權重 alpha
-        # 加入用戶譜特徵簽名，提供真正有區分度的通道資訊（raw_sim ⊥ raw_cor, cos≈0.03）
+        # 1. 計算四維意圖權重
         combined_context = torch.cat([u_sim_last, u_sim_att, u_rel_last, u_rel_att,
                                       user_spec_sim, user_spec_cor], dim=-1)
-        alpha = self.alpha_net(combined_context) # [batch, 1]
+        weights = F.softmax(self.intent_net(combined_context), dim=-1)  # [batch, 4]
 
-        # 3. 計算雙視角得分
-        # target_embs shape: [batch, N, emb_dim]
-        # 使用雙線性轉換計算使用者意圖與候選商品的匹配度
-        
-        # 相似性得分 (Similarity Score)
-        # score = u_sim * W * target_item
-        sim_score = torch.matmul(u_sim, self.w_sim) 
-        sim_score = torch.bmm(target_sim_embs, sim_score.unsqueeze(2)).squeeze(2)
+        # 2. 四分支評分（不再融合 last+att，保留時間維度）
+        # ① 短期相似：u_sim_last · W_sim · target_sim
+        s_sim_short = torch.matmul(self.dropout(u_sim_last), self.w_sim)
+        s_sim_short = torch.bmm(target_sim_embs, s_sim_short.unsqueeze(2)).squeeze(2)
 
-        # 互補性得分 (Complementarity Score)
-        rel_score = torch.matmul(u_rel, self.w_rel)
-        rel_score = torch.bmm(target_cor_embs, rel_score.unsqueeze(2)).squeeze(2)
-        
-        # 4. 最終預測值：由 alpha 進行自適應融合
-        # Final Score = alpha * Sim_Score + (1 - alpha) * Rel_Score
-        final_score = alpha * sim_score + (1 - alpha) * rel_score
+        # ② 長期相似：u_sim_att · W_sim · target_sim
+        s_sim_long = torch.matmul(self.dropout(u_sim_att), self.w_sim)
+        s_sim_long = torch.bmm(target_sim_embs, s_sim_long.unsqueeze(2)).squeeze(2)
 
-        return final_score, alpha, sim_score, rel_score
-    
+        # ③ 短期互補：u_cor_last · W_rel · target_cor
+        s_cor_short = torch.matmul(self.dropout(u_rel_last), self.w_rel)
+        s_cor_short = torch.bmm(target_cor_embs, s_cor_short.unsqueeze(2)).squeeze(2)
 
+        # ④ 長期互補：u_cor_att · W_rel · target_cor
+        s_cor_long = torch.matmul(self.dropout(u_rel_att), self.w_rel)
+        s_cor_long = torch.bmm(target_cor_embs, s_cor_long.unsqueeze(2)).squeeze(2)
 
-    # [新增這個方法]
-    # [請將此方法加入 models/intent_predictor.py 的 IntentPredictor 類別中]
-    
+        # 3. 加權融合：score = Σ w_i * score_i
+        # weights[:, i:i+1] → [batch, 1] 自動廣播到 [batch, neg_num+1]
+        final_score = (weights[:, 0:1] * s_sim_short +
+                       weights[:, 1:2] * s_sim_long +
+                       weights[:, 2:3] * s_cor_short +
+                       weights[:, 3:4] * s_cor_long)
+
+        # 4. 計算 sim 和 cor 的合併分數（供 BPR 輔助損失使用）
+        sim_score = s_sim_short + s_sim_long
+        rel_score = s_cor_short + s_cor_long
+
+        return final_score, weights, sim_score, rel_score
+
     def forward_full(self, sim_intents, rel_intents, all_sim_embs, all_cor_embs, user_spec_sim, user_spec_cor):
         """
-        全矩陣加速運算 (配合你的 AlphaNet 和 Bilinear Layer)
+        全矩陣加速運算（驗證/測試時用）
         """
         u_sim_last, u_sim_att = sim_intents
         u_rel_last, u_rel_att = rel_intents
 
-        # 計算 Alpha：加入譜特徵簽名
+        # 1. 計算四維意圖權重
         combined_context = torch.cat([u_sim_last, u_sim_att, u_rel_last, u_rel_att,
                                       user_spec_sim, user_spec_cor], dim=-1)
-        alpha = self.alpha_net(combined_context) # [Batch, 1]
+        weights = F.softmax(self.intent_net(combined_context), dim=-1)  # [Batch, 4]
 
-        # === [關鍵修正] 修改意圖融合方式，使其與 forward 一致 ===
-        # 舊版：u_sim = self.dropout(u_sim_last + u_sim_att)
-        # 3. 意圖融合 (對應原本 forward 的邏輯)
-        #u_sim = self.dropout(u_sim_last + u_sim_att)
-        #u_rel = self.dropout(u_rel_last + u_rel_att)
-        
-        # 新版：使用 fusion_sim 與 fusion_rel (與階段五 forward 邏輯對齊)
-        u_sim = self.fusion_sim(torch.cat([u_sim_last, u_sim_att], dim=-1))
-        u_sim = self.dropout(u_sim)
-        
-        u_rel = self.fusion_rel(torch.cat([u_rel_last, u_rel_att], dim=-1))
-        u_rel = self.dropout(u_rel)
-        # ===================================================
+        # 2. 四分支全矩陣評分
+        # [Batch, Dim] @ [Dim, Dim] -> [Batch, Dim]
+        # [Batch, Dim] @ [Dim, Num_Items] -> [Batch, Num_Items]
 
-        # 4. 全矩陣加速運算 (Matrix Multiplication)
-        # 你的模型有 w_sim 和 w_rel，所以要先乘上這個權重矩陣
-        
-        # Step A: 使用者向量變換 [Batch, Dim] @ [Dim, Dim] -> [Batch, Dim]
-        u_sim_trans = torch.matmul(u_sim, self.w_sim) 
-        u_rel_trans = torch.matmul(u_rel, self.w_rel) 
-        
-        # Step B: 與所有商品做內積 [Batch, Dim] @ [Dim, Num_Items] -> [Batch, Num_Items]
-        # all_sim_embs.t() 會把 [Num, Dim] 轉成 [Dim, Num]
-        sim_scores = torch.matmul(u_sim_trans, all_sim_embs.t())
-        rel_scores = torch.matmul(u_rel_trans, all_cor_embs.t())
-        
-        # 5. 加權融合
-        # alpha 自動廣播: [Batch, 1] * [Batch, Num_Items]
-        scores = alpha * sim_scores + (1 - alpha) * rel_scores
-        
+        s_sim_short = torch.matmul(torch.matmul(u_sim_last, self.w_sim), all_sim_embs.t())
+        s_sim_long  = torch.matmul(torch.matmul(u_sim_att,  self.w_sim), all_sim_embs.t())
+        s_cor_short = torch.matmul(torch.matmul(u_rel_last, self.w_rel), all_cor_embs.t())
+        s_cor_long  = torch.matmul(torch.matmul(u_rel_att,  self.w_rel), all_cor_embs.t())
+
+        # 3. 加權融合
+        scores = (weights[:, 0:1] * s_sim_short +
+                  weights[:, 1:2] * s_sim_long +
+                  weights[:, 2:3] * s_cor_short +
+                  weights[:, 3:4] * s_cor_long)
+
         return scores

@@ -61,7 +61,7 @@ class SDIASRLoss(nn.Module):
         loss = -torch.mean(torch.sum(probs * log_probs, dim=-1))
         return loss
 
-    def forward(self, scores, sim_scores, rel_scores, alpha, u_sim, u_cor, p_sim_s, p_cor_s, r_sim, r_cor, model):
+    def forward(self, scores, sim_scores, rel_scores, weights, u_sim, u_cor, p_sim_s, p_cor_s, r_sim, r_cor, model):
         # 1. BPR 推薦損失
         l_seq = -torch.mean(torch.log(torch.sigmoid(scores[:, 0].unsqueeze(1) - scores[:, 1:]) + 1e-10))
         l_sim = -torch.mean(torch.log(torch.sigmoid(sim_scores[:, 0].unsqueeze(1) - sim_scores[:, 1:]) + 1e-10))
@@ -74,12 +74,12 @@ class SDIASRLoss(nn.Module):
         cos_sim_spec = F.cosine_similarity(r_sim, r_cor, dim=-1)
         l_spec = torch.mean(cos_sim_spec**2)
 
-        # 4. Alpha 熵正則化：防止 alpha 崩塌至 0 或 1（雙通道退化成單通道）
-        # H(alpha) = -(alpha*log(alpha) + (1-alpha)*log(1-alpha))
-        # 在 alpha=0.5 時最大 (log2≈0.693)，在 alpha=0/1 時為 0
-        # 在 total_loss 中減去 H(alpha)，讓最小化 loss 等效於最大化 H(alpha)
-        H_alpha = -(alpha * torch.log(alpha + 1e-8) + (1 - alpha) * torch.log(1 - alpha + 1e-8))
-        l_alpha = -H_alpha.mean()  # 負熵，最小化此項 = 最大化熵
+        # 4. 四維權重熵正則化：防止權重崩塌至 one-hot（四通道退化成單通道）
+        # H(weights) = -Σ w_i * log(w_i)
+        # 在均勻分佈 [0.25, 0.25, 0.25, 0.25] 時最大 (log4≈1.386)
+        # weights shape: [batch, 4]
+        H_weights = -torch.sum(weights * torch.log(weights + 1e-8), dim=-1)  # [batch]
+        l_alpha = -H_weights.mean()  # 負熵，最小化此項 = 最大化熵
 
         # 5. 正則化：只對 weight 矩陣 (非 bias、非 LayerNorm、非 Embedding)
         reg_loss = sum(

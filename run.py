@@ -301,7 +301,7 @@ def main():
         for epoch in range(start_epoch, args.epochs):
             model.train()
             total_loss, total_l_seq, total_l_proto, total_l_spec, total_l_alpha = 0, 0, 0, 0, 0
-            total_alpha = 0
+            total_weights = torch.zeros(4)  # [w_sim_short, w_sim_long, w_cor_short, w_cor_long]
             total_feat_sim = 0
             
             
@@ -314,10 +314,10 @@ def main():
                 optimizer.zero_grad()
 
                 outputs = model(seqs, times, targets, adj_sim, adj_sim_dele, adj_cor, adj_cor_dele)
-                scores, alpha, sim_scores, rel_scores, feat_sim, u_sim, u_cor, p_sim_s, p_cor_s, r_sim, r_cor = outputs
+                scores, weights, sim_scores, rel_scores, feat_sim, u_sim, u_cor, p_sim_s, p_cor_s, r_sim, r_cor = outputs
 
                 loss, l_seq, l_proto, l_spec, l_alpha = criterion(
-                    scores, sim_scores, rel_scores, alpha, u_sim, u_cor, p_sim_s, p_cor_s, r_sim, r_cor, model
+                    scores, sim_scores, rel_scores, weights, u_sim, u_cor, p_sim_s, p_cor_s, r_sim, r_cor, model
                 )
                 loss.backward()
                 
@@ -331,20 +331,25 @@ def main():
                 total_l_proto += l_proto.item()
                 total_l_spec += l_spec.item()
                 total_l_alpha += l_alpha.item()
-                total_alpha += alpha.mean().item()
+                total_weights += weights.mean(dim=0).detach().cpu()
                 total_feat_sim += feat_sim.item()
 
+                w_mean = weights.mean(dim=0)
                 pbar.set_postfix({
                     "L_seq": f"{l_seq.item():.4f}",
-                    "α_avg": f"{alpha.mean().item():.3f}",
-                    "Spec": f"{l_spec.item():.3f}",
+                    "SimS": f"{w_mean[0].item():.3f}",
+                    "SimL": f"{w_mean[1].item():.3f}",
+                    "CorS": f"{w_mean[2].item():.3f}",
+                    "CorL": f"{w_mean[3].item():.3f}",
                     "Sim": f"{feat_sim.item():.2f}"
                 })
-                
-                # 定期記錄 Alpha 分佈 (每 200 個 Batch 印出一次細節)
-                if (batch_idx % 200 == 0): # 使用 batch_idx 才能每 200 步印一次
-                    a_val = alpha.detach()
-                    print(f"\n[Alpha Dist] Min: {a_val.min():.4f} | Max: {a_val.max():.4f} | Std: {a_val.std():.4f}")
+
+                # 定期記錄權重分佈 (每 200 個 Batch 印出一次細節)
+                if (batch_idx % 200 == 0):
+                    w_val = weights.detach()
+                    w_std = w_val.std(dim=0)
+                    print(f"\n[Weights Dist] Mean: [{w_mean[0]:.3f}, {w_mean[1]:.3f}, {w_mean[2]:.3f}, {w_mean[3]:.3f}] | "
+                          f"Std: [{w_std[0]:.4f}, {w_std[1]:.4f}, {w_std[2]:.4f}, {w_std[3]:.4f}]")
             
             num_batches = len(train_loader)
             avg_loss = total_loss / num_batches
@@ -352,7 +357,7 @@ def main():
             avg_proto_loss = total_l_proto / num_batches
             avg_spec_loss = total_l_spec / num_batches
             avg_l_alpha = total_l_alpha / num_batches
-            avg_alpha = total_alpha / num_batches
+            avg_weights = total_weights / num_batches
             avg_feat_sim = total_feat_sim / num_batches
 
             # 驗證階段
@@ -410,7 +415,7 @@ def main():
             current_lr = optimizer.param_groups[0]['lr']
             
             # --- 完整印出所有指標 ---
-            print(f"Epoch {epoch} | TotalLoss: {avg_loss:.4f} | L_seq: {avg_l_seq:.4f} | L_proto: {avg_proto_loss:.4f} | L_spec: {avg_spec_loss:.4f} | L_alpha: {avg_l_alpha:.4f} | Alpha: {avg_alpha:.4f} | Feat_Sim: {avg_feat_sim:.4f}")
+            print(f"Epoch {epoch} | TotalLoss: {avg_loss:.4f} | L_seq: {avg_l_seq:.4f} | L_proto: {avg_proto_loss:.4f} | L_spec: {avg_spec_loss:.4f} | L_alpha: {avg_l_alpha:.4f} | Weights: [{avg_weights[0]:.3f}, {avg_weights[1]:.3f}, {avg_weights[2]:.3f}, {avg_weights[3]:.3f}] | Feat_Sim: {avg_feat_sim:.4f}")
             print(f"Val HR@10: {avg_hr:.4f} | Val NDCG@10: {avg_ndcg:.4f} | Current LR: {current_lr}")        
             
             # 執行學習率調整：每個 epoch 結束後 step
