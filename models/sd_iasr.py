@@ -76,9 +76,8 @@ class SDIASR(nn.Module):
         nn.init.xavier_uniform_(self.sim_prototypes)
         nn.init.xavier_uniform_(self.cor_prototypes)
         
-        # [新增] 初始化為 0.1 的可學習標量參數
-        # 修改後 (如果你希望初始權重是 0.1)
-        self.alpha_residual = nn.Parameter(torch.tensor([-2.2]))
+        # 可學習的譜信號強度：sigmoid(0.0) = 0.5，讓譜信號占 50%
+        self.alpha_residual = nn.Parameter(torch.tensor([0.0]))
         
         
 
@@ -106,7 +105,7 @@ class SDIASR(nn.Module):
         raw_sim = self.layer_norm(raw_sim)
         raw_cor = self.layer_norm(raw_cor)
 
-        # 可學習的譜信號強度縮放：alpha_residual 初始化為 -2.2，sigmoid(-2.2) ≈ 0.1
+        # 可學習的譜信號強度縮放：alpha_residual 初始化為 0.0，sigmoid(0.0) = 0.5
         res_w = torch.sigmoid(self.alpha_residual)
 
         x_sim = initial_embs + res_w * raw_sim
