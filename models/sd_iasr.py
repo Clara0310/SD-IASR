@@ -76,9 +76,9 @@ class SDIASR(nn.Module):
         nn.init.xavier_uniform_(self.sim_prototypes)
         nn.init.xavier_uniform_(self.cor_prototypes)
         
-        # 可學習的譜信號強度：sigmoid(2.2) ≈ 0.9，讓譜信號占 90%，BERT 占 10%
+        # 可學習的譜信號強度：sigmoid(1.0) ≈ 0.73，讓譜信號占 73%，BERT 占 27%
         # 真正的加權混合：x_sim = (1-res_w)*BERT + res_w*spectral
-        self.alpha_residual = nn.Parameter(torch.tensor([2.2]))
+        self.alpha_residual = nn.Parameter(torch.tensor([1.0]))
         
         
 

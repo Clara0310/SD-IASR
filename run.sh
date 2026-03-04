@@ -54,7 +54,7 @@ num_prototypes=64 # 全局意圖原型的數量
 LAMBDA_DIFF=0.01   # 商品層級解耦損失（Item-level Disentangle Loss）的權重係數
 GAMMA=0.05        # 圖信號
 DECAY_DAYS=0.002  # 時間衰減率（每天）: 1年前的商品權重≈0.48，5年前≈0.03
-LAMBDA_ALPHA=0.5  # Alpha 熵正則化權重：防止雙通道崩塌成單通道
+LAMBDA_ALPHA=0.0  # Alpha 熵正則化已關閉：原bug(gamma_gating)修好後不再需要，強制0.5反而阻止alpha分化
 
 
 
