@@ -111,11 +111,12 @@ def main():
             times = user_row['times']
             
             # Split
+            # BARec 讀取時會自動 +1，所以這裡先 -1 讓內部 item ID 從 1 開始（非 2）
             for i in range(len(items) - 2):
-                f_train.write(f"{u}\t{items[i]}\t{times[i]}\n")
-            
-            f_val.write(f"{u}\t{items[-2]}\t{times[-2]}\n")
-            f_test.write(f"{u}\t{items[-1]}\t{times[-1]}\n")
+                f_train.write(f"{u}\t{items[i] - 1}\t{times[i]}\n")
+
+            f_val.write(f"{u}\t{items[-2] - 1}\t{times[-2]}\n")
+            f_test.write(f"{u}\t{items[-1] - 1}\t{times[-1]}\n")
 
     # ==========================================
     # 5. 輸出給 STIRec
