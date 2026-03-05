@@ -62,23 +62,35 @@ class SDIASR(nn.Module):
             dropout=dropout
         )
         
-        # --- [新增這一行] ---
-        self.layer_norm = nn.LayerNorm(emb_dim)  # 用於穩定譜解耦後的特徵
-        
+        # 用於穩定譜解耦後的特徵（標準化 low-pass/mid-pass 幅度差異）
+        self.layer_norm = nn.LayerNorm(emb_dim)
+
+        # === 通道專用投影層 (Channel-Specific Projection) ===
+        # 取代加法公式：將 [BERT, spectral] 拼接後投影到各自的語義空間
+        # 每個通道有獨立的投影權重，可以自行決定如何利用 BERT 和譜信號
+        self.proj_sim = nn.Sequential(
+            nn.Linear(emb_dim * 2, emb_dim),
+            nn.LayerNorm(emb_dim),
+            nn.GELU(),
+            nn.Linear(emb_dim, emb_dim),
+        )
+        self.proj_cor = nn.Sequential(
+            nn.Linear(emb_dim * 2, emb_dim),
+            nn.LayerNorm(emb_dim),
+            nn.GELU(),
+            nn.Linear(emb_dim, emb_dim),
+        )
+
         # === 4. 使用者意圖預測模組 === (Intent-Aware Prediction)
         self.predictor = IntentPredictor(emb_dim, dropout=dropout)
-        self.dropout = nn.Dropout(dropout) # <--- [新增] 定義一個全域 dropout 層
-        
+        self.dropout = nn.Dropout(dropout)
+
         # [核心升級] 雙重語義原型：分開對齊
         self.num_prototypes = num_prototypes
         self.sim_prototypes = nn.Parameter(torch.zeros(num_prototypes, emb_dim))
         self.cor_prototypes = nn.Parameter(torch.zeros(num_prototypes, emb_dim))
         nn.init.xavier_uniform_(self.sim_prototypes)
         nn.init.xavier_uniform_(self.cor_prototypes)
-        
-        # 可學習的譜信號強度：sigmoid(0.0) = 0.5，讓 BERT 全量保留，加上 0.5 倍譜信號
-        # 加法公式：x_sim = BERT + res_w * spectral（BERT 作為穩定基底，避免早期訓練崩潰）
-        self.alpha_residual = nn.Parameter(torch.tensor([0.0]))
         
         
 
@@ -100,19 +112,14 @@ class SDIASR(nn.Module):
         # _, raw_cor = self.spectral_disentangler(initial_embs, adj_cor, adj_cor)
         raw_sim, _ = self.spectral_disentangler(initial_embs, adj_sim, adj_sim_dele)
         _, raw_cor = self.spectral_disentangler(initial_embs, adj_cor, adj_cor_dele)
-        #============================================================
-        # 先用 LayerNorm 將兩個通道的譜信號標準化到相同尺度
-        # 這解決 low-pass (衰減) 與 mid-pass (放大) 信號幅度差距懸殊 (~400x) 的問題
+        # 標準化譜信號幅度（解決 low-pass/mid-pass 幅度差距 ~400x 的問題）
         raw_sim = self.layer_norm(raw_sim)
         raw_cor = self.layer_norm(raw_cor)
 
-        # 加法公式：BERT 全量保留作為穩定基底，加上可學習強度的譜信號
-        # res_w 初始 = 0.5，譜信號對 x_sim 與 x_cor 的影響不同（一個用 raw_sim，一個用 raw_cor）
-        res_w = torch.sigmoid(self.alpha_residual)
-
-        x_sim = initial_embs + res_w * raw_sim
-        x_cor = initial_embs + res_w * raw_cor
-        #============================================================
+        # 通道專用投影：[BERT, spectral] 拼接後由獨立投影層映射到各自語義空間
+        # 取代加法公式，讓每個通道自行學習如何組合 BERT 和譜信號
+        x_sim = self.proj_sim(torch.cat([initial_embs, raw_sim], dim=-1))
+        x_cor = self.proj_cor(torch.cat([initial_embs, raw_cor], dim=-1))
         
         # === 計算兩個空間的特徵相似度  ===
         # 我們想知道譜解耦後，兩個矩陣是否分得很開
@@ -153,8 +160,8 @@ class SDIASR(nn.Module):
             sim_intents, cor_intents, target_sim_embs, target_cor_embs,
             user_spec_sim, user_spec_cor
         )
-        # [修改回傳值] 加入 raw_sim, raw_cor 供譜圖解耦損失使用
-        return scores, weights, sim_scores, rel_scores, feat_sim, u_sim, u_cor, proto_sim_scores, proto_cor_scores, raw_sim, raw_cor
+        # [修改回傳值] 回傳 x_sim, x_cor 供 L_spec 正交解耦損失使用（取代 raw_sim, raw_cor）
+        return scores, weights, sim_scores, rel_scores, feat_sim, u_sim, u_cor, proto_sim_scores, proto_cor_scores, x_sim, x_cor
       
     def load_pretrain_embedding(self, cid2_emb, cid3_emb, item_to_cid, item_to_price):
         
@@ -277,25 +284,20 @@ class SDIASR(nn.Module):
     
     
     # 一次性取得所有商品特徵
-    def get_all_item_features(self, adj_sim, adj_sim_dele, adj_cor, adj_cor_dele): # 參數名改為一致
+    def get_all_item_features(self, adj_sim, adj_sim_dele, adj_cor, adj_cor_dele):
         all_item_indices = torch.arange(self.item_num).to(adj_sim.device)
         initial_embs = self.item_embedding(all_item_indices)
         initial_embs = self.dropout(initial_embs)
-        
-        # [同步修改] 也要改成物理隔離呼叫
-        # raw_sim, _ = self.spectral_disentangler(initial_embs, adj_sim, adj_sim)
-        # _, raw_cor = self.spectral_disentangler(initial_embs, adj_cor, adj_cor)
+
         raw_sim, _ = self.spectral_disentangler(initial_embs, adj_sim, adj_sim_dele)
         _, raw_cor = self.spectral_disentangler(initial_embs, adj_cor, adj_cor_dele)
-
 
         raw_sim = self.layer_norm(raw_sim)
         raw_cor = self.layer_norm(raw_cor)
 
-        res_w = torch.sigmoid(self.alpha_residual)
-
-        x_sim = initial_embs + res_w * raw_sim
-        x_cor = initial_embs + res_w * raw_cor
+        # 通道專用投影（與 forward 邏輯一致）
+        x_sim = self.proj_sim(torch.cat([initial_embs, raw_sim], dim=-1))
+        x_cor = self.proj_cor(torch.cat([initial_embs, raw_cor], dim=-1))
 
         return x_sim, x_cor, raw_sim, raw_cor
 

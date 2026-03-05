@@ -314,10 +314,10 @@ def main():
                 optimizer.zero_grad()
 
                 outputs = model(seqs, times, targets, adj_sim, adj_sim_dele, adj_cor, adj_cor_dele)
-                scores, weights, sim_scores, rel_scores, feat_sim, u_sim, u_cor, p_sim_s, p_cor_s, r_sim, r_cor = outputs
+                scores, weights, sim_scores, rel_scores, feat_sim, u_sim, u_cor, p_sim_s, p_cor_s, x_sim_out, x_cor_out = outputs
 
                 loss, l_seq, l_proto, l_spec, l_alpha = criterion(
-                    scores, sim_scores, rel_scores, weights, u_sim, u_cor, p_sim_s, p_cor_s, r_sim, r_cor, model
+                    scores, sim_scores, rel_scores, weights, u_sim, u_cor, p_sim_s, p_cor_s, x_sim_out, x_cor_out, model
                 )
                 loss.backward()
                 

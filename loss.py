@@ -61,7 +61,7 @@ class SDIASRLoss(nn.Module):
         loss = -torch.mean(torch.sum(probs * log_probs, dim=-1))
         return loss
 
-    def forward(self, scores, sim_scores, rel_scores, weights, u_sim, u_cor, p_sim_s, p_cor_s, r_sim, r_cor, model):
+    def forward(self, scores, sim_scores, rel_scores, weights, u_sim, u_cor, p_sim_s, p_cor_s, x_sim, x_cor, model):
         # 1. BPR 推薦損失
         l_seq = -torch.mean(torch.log(torch.sigmoid(scores[:, 0].unsqueeze(1) - scores[:, 1:]) + 1e-10))
         l_sim = -torch.mean(torch.log(torch.sigmoid(sim_scores[:, 0].unsqueeze(1) - sim_scores[:, 1:]) + 1e-10))
@@ -70,8 +70,9 @@ class SDIASRLoss(nn.Module):
         # 2. 原型聚類損失
         l_proto = self.calculate_proto_loss(p_sim_s) + self.calculate_proto_loss(p_cor_s)
 
-        # 3. 譜圖層正交解耦損失
-        cos_sim_spec = F.cosine_similarity(r_sim, r_cor, dim=-1)
+        # 3. 通道正交解耦損失（作用在最終表示 x_sim/x_cor 上，而非 raw）
+        # 直接懲罰兩個通道的最終輸出相似度，強制 proj_sim 和 proj_cor 學出不同的語義空間
+        cos_sim_spec = F.cosine_similarity(x_sim, x_cor, dim=-1)
         l_spec = torch.mean(cos_sim_spec**2)
 
         # 4. 四維權重熵正則化：防止權重崩塌至 one-hot（四通道退化成單通道）
