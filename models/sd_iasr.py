@@ -85,6 +85,12 @@ class SDIASR(nn.Module):
         self.predictor = IntentPredictor(emb_dim, dropout=dropout)
         self.dropout = nn.Dropout(dropout)
 
+        # === 5. Learnable ID Embedding（殘差）===
+        # 直接由 BPR 信號優化，補足譜特徵無法表達的細粒度個性化信號
+        # 以殘差方式加入：x_sim_final = proj_sim([BERT, spectral]) + id_emb
+        self.id_emb = nn.Embedding(item_num, emb_dim)
+        nn.init.xavier_uniform_(self.id_emb.weight.unsqueeze(0))
+
         # [核心升級] 雙重語義原型：分開對齊
         self.num_prototypes = num_prototypes
         self.sim_prototypes = nn.Parameter(torch.zeros(num_prototypes, emb_dim))
@@ -118,9 +124,10 @@ class SDIASR(nn.Module):
 
         # 通道專用投影：[BERT, spectral] 拼接後由獨立投影層映射到各自語義空間
         # 取代加法公式，讓每個通道自行學習如何組合 BERT 和譜信號
-        x_sim = self.proj_sim(torch.cat([initial_embs, raw_sim], dim=-1))
-        x_cor = self.proj_cor(torch.cat([initial_embs, raw_cor], dim=-1))
-        
+        id_residual = self.id_emb(all_item_indices)  # [num_items, emb_dim]
+        x_sim = self.proj_sim(torch.cat([initial_embs, raw_sim], dim=-1)) + id_residual
+        x_cor = self.proj_cor(torch.cat([initial_embs, raw_cor], dim=-1)) + id_residual
+
         # === 計算兩個空間的特徵相似度  ===
         # 我們想知道譜解耦後，兩個矩陣是否分得很開
         with torch.no_grad():
@@ -296,8 +303,9 @@ class SDIASR(nn.Module):
         raw_cor = self.layer_norm(raw_cor)
 
         # 通道專用投影（與 forward 邏輯一致）
-        x_sim = self.proj_sim(torch.cat([initial_embs, raw_sim], dim=-1))
-        x_cor = self.proj_cor(torch.cat([initial_embs, raw_cor], dim=-1))
+        id_residual = self.id_emb(all_item_indices)
+        x_sim = self.proj_sim(torch.cat([initial_embs, raw_sim], dim=-1)) + id_residual
+        x_cor = self.proj_cor(torch.cat([initial_embs, raw_cor], dim=-1)) + id_residual
 
         return x_sim, x_cor, raw_sim, raw_cor
 

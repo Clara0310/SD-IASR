@@ -22,7 +22,7 @@ BERT_DIM=768
 LR=0.0005 #0.001 調小為 0.0005，稍微調降以穩定訓練
 BATCH_SIZE=256
 EPOCHS=1000
-PATIENCE=150
+PATIENCE=50
 MAX_SEQ_LEN=50
 
 # 3. SD-IASR 核心解耦參數
@@ -40,10 +40,10 @@ MILESTONES="50,100"       # 在 epoch 50 和 100 降速
 LR_GAMMA=0.5              # 每次降為原來的一半
 
 # loss 權重參數
-LAMBDA_1=1.0 # 相似推薦權重
-LAMBDA_2=1.0 # 互補推薦權重
+LAMBDA_1=0.0 # 已停用：改用 Sampled Softmax 單一損失，不再需要分支損失
+LAMBDA_2=0.0 # 已停用：同上
 LAMBDA_REG=0.01 # 提高正則化
-LAMBDA_PROTO=0.01 # 保持去噪
+LAMBDA_PROTO=0.0  # 關閉：proto loss 與 BPR 目標衝突，移除以專注排名學習
 LAMBDA_SPEC=2.0   # 強力推開兩通道（原0.3太弱，Feat_Sim無法降低）
 TAU=0.3       # 強去噪溫度
 DROPOUT=0.3 # 防過擬合
@@ -54,7 +54,9 @@ num_prototypes=64 # 全局意圖原型的數量
 LAMBDA_DIFF=0.01   # 商品層級解耦損失（Item-level Disentangle Loss）的權重係數
 GAMMA=0.05        # 圖信號
 DECAY_DAYS=0.002  # 時間衰減率（每天）: 1年前的商品權重≈0.48，5年前≈0.03
-LAMBDA_ALPHA=0.5  # 四維權重熵正則化：通道投影分離後重新開啟，防止 weights 崩塌至 one-hot
+LAMBDA_ALPHA=0.0  # 關閉：Feat_Sim=0.000 靠架構自然維持，讓 intent_net 自由學習個人化
+TEST_FREQ=10      # 每 N 個 epoch 順帶跑一次 test 評估（0 = 關閉）
+NEG_SAMPLE=50     # Sampled Softmax 的 online 負採樣數量（越多訓練信號越強，50 是合理起點）
 
 
 
@@ -88,5 +90,7 @@ python run.py \
     --tau $TAU \
     --dropout $DROPOUT \
     --decay_days $DECAY_DAYS \
+    --test_freq $TEST_FREQ \
+    --num_neg_train $NEG_SAMPLE \
     --gpu 0 \
     "$@" #彈性接收指令的參數（ex. resume or not）

@@ -72,6 +72,8 @@ def main():
     
     
     parser.add_argument('--num_prototypes', type=int, default=64, help='Number of global intent prototypes')
+    parser.add_argument('--test_freq', type=int, default=0, help='每 N 個 epoch 評估一次 test set（0 = 關閉）')
+    parser.add_argument('--num_neg_train', type=int, default=50, help='訓練時 online 負採樣數量（Sampled Softmax 用）')
     
     args = parser.parse_args()
     
@@ -313,7 +315,13 @@ def main():
 
                 optimizer.zero_grad()
 
-                outputs = model(seqs, times, targets, adj_sim, adj_sim_dele, adj_cor, adj_cor_dele)
+                # Online Negative Sampling：取 targets[:, 0] 為正樣本，再隨機採 num_neg_train 個負樣本
+                # 這讓 Sampled Softmax 同時對 K 個競爭者排名，訓練信號遠強於 BPR (K=1)
+                pos_items = targets[:, 0].unsqueeze(1)  # [B, 1]
+                neg_items = torch.randint(1, num_items, (seqs.size(0), args.num_neg_train), device=device)  # [B, K]
+                target_indices = torch.cat([pos_items, neg_items], dim=1)  # [B, 1+K]
+
+                outputs = model(seqs, times, target_indices, adj_sim, adj_sim_dele, adj_cor, adj_cor_dele)
                 scores, weights, sim_scores, rel_scores, feat_sim, u_sim, u_cor, p_sim_s, p_cor_s, x_sim_out, x_cor_out = outputs
 
                 loss, l_seq, l_proto, l_spec, l_alpha = criterion(
@@ -421,6 +429,25 @@ def main():
             # 執行學習率調整：每個 epoch 結束後 step
             scheduler.step()
             
+            # 週期性 Test 評估（每 test_freq 個 epoch）
+            if args.test_freq > 0 and (epoch + 1) % args.test_freq == 0:
+                model.eval()
+                t_hr_10, t_ndcg_10 = [], []
+                with torch.no_grad():
+                    for t_seqs, t_times, t_targets, t_indices in test_loader:
+                        t_seqs, t_times, t_targets = t_seqs.to(device), t_times.to(device), t_targets.to(device)
+                        t_pos = t_targets.squeeze()
+                        if t_pos.dim() == 0:
+                            t_pos = t_pos.unsqueeze(0)
+                        t_scores = model.predict_full_fast(t_seqs, t_times, x_sim_all, x_cor_all, raw_sim_all, raw_cor_all)
+                        t_pos_scores = t_scores.gather(1, t_pos.unsqueeze(1))
+                        t_scores.scatter_(1, test_history_matrix[t_indices], -float('inf'))
+                        t_scores.scatter_(1, t_pos.unsqueeze(1), t_pos_scores)
+                        t_rank = (t_scores > t_pos_scores).sum(dim=1) + 1
+                        t_hr_10.append((t_rank <= 10).float().mean().item())
+                        t_ndcg_10.append(((1.0 / torch.log2(t_rank.float() + 1.0)) * (t_rank <= 10).float()).mean().item())
+                print(f"[Test@Ep{epoch}] HR@10: {np.mean(t_hr_10):.4f} | NDCG@10: {np.mean(t_ndcg_10):.4f}")
+
             # Early Stopping 與權重儲存
             if avg_hr > best_hr:
                 best_hr = avg_hr

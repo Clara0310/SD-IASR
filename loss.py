@@ -62,25 +62,23 @@ class SDIASRLoss(nn.Module):
         return loss
 
     def forward(self, scores, sim_scores, rel_scores, weights, u_sim, u_cor, p_sim_s, p_cor_s, x_sim, x_cor, model):
-        # 1. BPR 推薦損失
-        l_seq = -torch.mean(torch.log(torch.sigmoid(scores[:, 0].unsqueeze(1) - scores[:, 1:]) + 1e-10))
-        l_sim = -torch.mean(torch.log(torch.sigmoid(sim_scores[:, 0].unsqueeze(1) - sim_scores[:, 1:]) + 1e-10))
-        l_rel = -torch.mean(torch.log(torch.sigmoid(rel_scores[:, 0].unsqueeze(1) - rel_scores[:, 1:]) + 1e-10))
+        # 1. Sampled Softmax 推薦損失
+        # scores: [B, 1+neg]，index 0 為正樣本
+        # -log P(pos | pos + neg) = cross_entropy(scores, label=0)
+        # 比 BPR 更強：同時對 K 個負樣本做 softmax 競爭，更容易把正樣本推進 top-K
+        targets_zero = torch.zeros(scores.size(0), dtype=torch.long, device=scores.device)
+        l_seq = F.cross_entropy(scores, targets_zero)
 
         # 2. 原型聚類損失
         l_proto = self.calculate_proto_loss(p_sim_s) + self.calculate_proto_loss(p_cor_s)
 
         # 3. 通道正交解耦損失（作用在最終表示 x_sim/x_cor 上，而非 raw）
-        # 直接懲罰兩個通道的最終輸出相似度，強制 proj_sim 和 proj_cor 學出不同的語義空間
         cos_sim_spec = F.cosine_similarity(x_sim, x_cor, dim=-1)
         l_spec = torch.mean(cos_sim_spec**2)
 
-        # 4. 四維權重熵正則化：防止權重崩塌至 one-hot（四通道退化成單通道）
-        # H(weights) = -Σ w_i * log(w_i)
-        # 在均勻分佈 [0.25, 0.25, 0.25, 0.25] 時最大 (log4≈1.386)
-        # weights shape: [batch, 4]
-        H_weights = -torch.sum(weights * torch.log(weights + 1e-8), dim=-1)  # [batch]
-        l_alpha = -H_weights.mean()  # 負熵，最小化此項 = 最大化熵
+        # 4. Alpha 熵正則化（目前 weights 為固定 0.25，此項為 0，保留供未來使用）
+        H_weights = -torch.sum(weights * torch.log(weights + 1e-8), dim=-1)
+        l_alpha = -H_weights.mean()
 
         # 5. 正則化：只對 weight 矩陣 (非 bias、非 LayerNorm、非 Embedding)
         reg_loss = sum(
@@ -90,7 +88,7 @@ class SDIASRLoss(nn.Module):
             and 'embedding' not in name and 'norm' not in name
         )
 
-        total_loss = (l_seq + self.lambda_1 * l_sim + self.lambda_2 * l_rel) + \
+        total_loss = l_seq + \
                      self.lambda_reg * reg_loss + \
                      self.lambda_proto * l_proto + \
                      self.lambda_spec * l_spec + \
