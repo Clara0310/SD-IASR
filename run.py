@@ -74,6 +74,7 @@ def main():
     parser.add_argument('--num_prototypes', type=int, default=64, help='Number of global intent prototypes')
     parser.add_argument('--test_freq', type=int, default=0, help='每 N 個 epoch 評估一次 test set（0 = 關閉）')
     parser.add_argument('--num_neg_train', type=int, default=50, help='訓練時 online 負採樣數量（Sampled Softmax 用）')
+    parser.add_argument('--alpha_cf', type=float, default=0.0, help='非參數歷史 CF 分數權重（0=關閉）')
     
     args = parser.parse_args()
     
@@ -324,6 +325,16 @@ def main():
                 outputs = model(seqs, times, target_indices, adj_sim, adj_sim_dele, adj_cor, adj_cor_dele)
                 scores, weights, sim_scores, rel_scores, feat_sim, u_sim, u_cor, p_sim_s, p_cor_s, x_sim_out, x_cor_out = outputs
 
+                # Non-parametric History CF：用 seqs 歷史的投影特徵均值，無新參數
+                if args.alpha_cf > 0:
+                    x_avg = (x_sim_out + x_cor_out) / 2  # [N, D]
+                    hist_mask = (seqs != 0).float().unsqueeze(-1)  # [B, L, 1]
+                    hist_count = hist_mask.sum(dim=1).clamp(min=1)  # [B, 1]
+                    u_hist = (F.embedding(seqs, x_avg) * hist_mask).sum(dim=1) / hist_count  # [B, D]
+                    x_avg_target = F.embedding(target_indices, x_avg)  # [B, 1+K, D]
+                    cf_score = torch.bmm(x_avg_target, u_hist.unsqueeze(2)).squeeze(2) / (model.emb_dim ** 0.5)
+                    scores = scores + args.alpha_cf * cf_score
+
                 loss, l_seq, l_proto, l_spec, l_alpha = criterion(
                     scores, sim_scores, rel_scores, weights, u_sim, u_cor, p_sim_s, p_cor_s, x_sim_out, x_cor_out, model
                 )
@@ -385,12 +396,20 @@ def main():
                     # 1. 算出所有商品的分數 [Batch, Num_Items]
                     # 改呼叫 fast 版本，傳入緩存的特徵
                     scores = model.predict_full_fast(seqs, times, x_sim_all, x_cor_all, raw_sim_all, raw_cor_all)
-                    
-                    
+
+                    # Non-parametric History CF（驗證）
+                    if args.alpha_cf > 0:
+                        x_avg_all = (x_sim_all + x_cor_all) / 2
+                        hist_mask = (seqs != 0).float().unsqueeze(-1)
+                        hist_count = hist_mask.sum(dim=1).clamp(min=1)
+                        u_hist = (F.embedding(seqs, x_avg_all) * hist_mask).sum(dim=1) / hist_count
+                        cf_score = torch.matmul(u_hist, x_avg_all.t()) / (model.emb_dim ** 0.5)
+                        scores = scores + args.alpha_cf * cf_score
+
                     # 2. 取得正確答案的分數
                     # gather 需要 index 維度一致，所以 unsqueeze
                     pos_scores = scores.gather(1, target_pos.unsqueeze(1)) # [Batch, 1]
-                    
+
                     # 3. Masking (屏蔽歷史購買過的商品)
                     # --- [核心優化：全歷史 Masking 一行搞定] ---
                     # 取得這一個 batch 對應的全歷史張量
@@ -440,6 +459,13 @@ def main():
                         if t_pos.dim() == 0:
                             t_pos = t_pos.unsqueeze(0)
                         t_scores = model.predict_full_fast(t_seqs, t_times, x_sim_all, x_cor_all, raw_sim_all, raw_cor_all)
+                        if args.alpha_cf > 0:
+                            x_avg_all = (x_sim_all + x_cor_all) / 2
+                            t_hist_mask = (t_seqs != 0).float().unsqueeze(-1)
+                            t_hist_count = t_hist_mask.sum(dim=1).clamp(min=1)
+                            t_u_hist = (F.embedding(t_seqs, x_avg_all) * t_hist_mask).sum(dim=1) / t_hist_count
+                            t_cf_score = torch.matmul(t_u_hist, x_avg_all.t()) / (model.emb_dim ** 0.5)
+                            t_scores = t_scores + args.alpha_cf * t_cf_score
                         t_pos_scores = t_scores.gather(1, t_pos.unsqueeze(1))
                         t_scores.scatter_(1, test_history_matrix[t_indices], -float('inf'))
                         t_scores.scatter_(1, t_pos.unsqueeze(1), t_pos_scores)
@@ -512,8 +538,16 @@ def main():
 
             # 1. [關鍵] 呼叫 predict_full 算出所有商品的分數 [Batch, Num_Items]
             scores = model.predict_full_fast(seqs, times, x_sim_all, x_cor_all, raw_sim_all, raw_cor_all)
-            
-            
+
+            # Non-parametric History CF（測試）
+            if args.alpha_cf > 0:
+                x_avg_all = (x_sim_all + x_cor_all) / 2
+                hist_mask = (seqs != 0).float().unsqueeze(-1)
+                hist_count = hist_mask.sum(dim=1).clamp(min=1)
+                u_hist = (F.embedding(seqs, x_avg_all) * hist_mask).sum(dim=1) / hist_count
+                cf_score = torch.matmul(u_hist, x_avg_all.t()) / (model.emb_dim ** 0.5)
+                scores = scores + args.alpha_cf * cf_score
+
             # 2. 取得正確答案的分數
             # gather 需要 index 維度一致，所以 unsqueeze
             pos_scores = scores.gather(1, target_pos.unsqueeze(1)) # [Batch, 1]
