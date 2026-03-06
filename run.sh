@@ -56,7 +56,7 @@ GAMMA=0.05        # 圖信號
 DECAY_DAYS=0.002  # 時間衰減率（每天）: 1年前的商品權重≈0.48，5年前≈0.03
 LAMBDA_ALPHA=0.0  # 關閉：Feat_Sim=0.000 靠架構自然維持，讓 intent_net 自由學習個人化
 TEST_FREQ=10      # 每 N 個 epoch 順帶跑一次 test 評估（0 = 關閉）
-NEG_SAMPLE=50     # Sampled Softmax 的 online 負採樣數量（越多訓練信號越強，50 是合理起點）
+NEG_SAMPLE=200    # Sampled Softmax 的 online 負採樣數量（從 50 調升至 200，縮小訓練-測試分布落差）
 
 
 
