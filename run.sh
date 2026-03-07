@@ -58,6 +58,8 @@ LAMBDA_ALPHA=0.0  # 關閉：Feat_Sim=0.000 靠架構自然維持，讓 intent_n
 TEST_FREQ=10      # 每 N 個 epoch 順帶跑一次 test 評估（0 = 關閉）
 NEG_SAMPLE=200    # Sampled Softmax 的 online 負採樣數量（從 50 調升至 200，縮小訓練-測試分布落差）
 ALPHA_CF=0.2      # 非參數歷史 CF 分數權重（0=關閉）
+COOC_WINDOW=5     # 訓練序列共現圖滑動視窗大小（0=關閉，5=考慮序列中相距5以內的商品對）
+COOC_WEIGHT=1.0   # 共現邊相對於 also_view 邊的權重縮放
 
 
 
@@ -94,5 +96,7 @@ python run.py \
     --test_freq $TEST_FREQ \
     --num_neg_train $NEG_SAMPLE \
     --alpha_cf $ALPHA_CF \
+    --cooc_window $COOC_WINDOW \
+    --cooc_weight $COOC_WEIGHT \
     --gpu 0 \
     "$@" #彈性接收指令的參數（ex. resume or not）

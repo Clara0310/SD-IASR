@@ -75,6 +75,8 @@ def main():
     parser.add_argument('--test_freq', type=int, default=0, help='每 N 個 epoch 評估一次 test set（0 = 關閉）')
     parser.add_argument('--num_neg_train', type=int, default=50, help='訓練時 online 負採樣數量（Sampled Softmax 用）')
     parser.add_argument('--alpha_cf', type=float, default=0.0, help='非參數歷史 CF 分數權重（0=關閉）')
+    parser.add_argument('--cooc_window', type=int, default=0, help='訓練序列共現圖滑動視窗大小（0=關閉）')
+    parser.add_argument('--cooc_weight', type=float, default=1.0, help='共現邊相對於 also_view 邊的權重縮放')
     
     args = parser.parse_args()
     
@@ -193,6 +195,53 @@ def main():
 
         print(f"Edge weight stats - Sim: mean={sim_weights.mean():.4f}, min={sim_weights.min():.4f}, max={sim_weights.max():.4f}")
         print(f"Edge weight stats - Com: mean={com_weights.mean():.4f}, min={com_weights.min():.4f}, max={com_weights.max():.4f}")
+
+    # [新增] 訓練序列共現圖：從 training sequences 建構 item-item 共現邊，補充跨用戶 CF 信號
+    if args.cooc_window > 0:
+        print(f"Building co-occurrence graph (window={args.cooc_window}) from training sequences...")
+        from collections import defaultdict
+        cooc_counts = defaultdict(float)
+        for entry in raw_data['train_set']:
+            seq = [x for x in list(entry[0]) if x != 0]
+            for i in range(len(seq)):
+                for j in range(i + 1, min(i + args.cooc_window + 1, len(seq))):
+                    u, v = seq[i], seq[j]
+                    if u == v:
+                        continue
+                    if u > v:
+                        u, v = v, u
+                    cooc_counts[(u, v)] += 1.0 / (j - i)  # 距離衰減：近鄰權重高
+
+        if cooc_counts:
+            cooc_src = np.array([k[0] for k in cooc_counts], dtype=np.int64)
+            cooc_dst = np.array([k[1] for k in cooc_counts], dtype=np.int64)
+            cooc_w   = np.array([cooc_counts[k] for k in cooc_counts], dtype=np.float32)
+            cooc_w   = cooc_w / cooc_w.max()  # 歸一化至 [0, 1]
+
+            # 若啟用時間衰減，套用於共現邊
+            if args.decay_days > 0:
+                cooc_w = cooc_w * np.sqrt(item_recency[cooc_src] * item_recency[cooc_dst])
+
+            cooc_w = cooc_w * args.cooc_weight
+
+            # 建立雙向邊
+            both_src = np.concatenate([cooc_src, cooc_dst])
+            both_dst = np.concatenate([cooc_dst, cooc_src])
+            both_w   = np.concatenate([cooc_w, cooc_w])
+
+            cooc_edge_tensor = torch.tensor(
+                np.stack([both_src, both_dst]), dtype=torch.long
+            ).to(device)
+
+            # 合併至 sim_edges（共現 = 同用戶買過 → 相似性信號）
+            n_orig_sim = sim_edges.shape[1]
+            sim_edges = torch.cat([sim_edges, cooc_edge_tensor], dim=1)
+            orig_sim_w = sim_weights if sim_weights is not None else np.ones(n_orig_sim, dtype=np.float32)
+            sim_weights = np.concatenate([orig_sim_w, both_w])
+
+            print(f"Co-occurrence: {len(cooc_counts)} unique pairs → total sim_edges: {sim_edges.shape[1]}")
+        else:
+            print("Co-occurrence: No pairs found in training sequences.")
 
     # 3. 物理隔離：分別產生對應通道的矩陣（帶時間衰減邊權）
     adj_sim, adj_sim_dele = create_sr_matrices(sim_edges, num_items, edge_weights=sim_weights)
