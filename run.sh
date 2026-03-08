@@ -56,10 +56,13 @@ GAMMA=0.05        # 圖信號
 DECAY_DAYS=0.002  # 時間衰減率（每天）: 1年前的商品權重≈0.48，5年前≈0.03
 LAMBDA_ALPHA=0.0  # 關閉：Feat_Sim=0.000 靠架構自然維持，讓 intent_net 自由學習個人化
 TEST_FREQ=10      # 每 N 個 epoch 順帶跑一次 test 評估（0 = 關閉）
-NEG_SAMPLE=200    # Sampled Softmax 的 online 負採樣數量（從 50 調升至 200，縮小訓練-測試分布落差）
+NEG_SAMPLE=200    # 恢復 200（NEG=500 對 Grocery 太難，Ep15 後完全卡死）
 ALPHA_CF=0.2      # 非參數歷史 CF 分數權重（0=關閉）
 COOC_WINDOW=5     # 訓練序列共現圖滑動視窗大小（0=關閉，5=考慮序列中相距5以內的商品對）
 COOC_WEIGHT=1.0   # 共現邊相對於 also_view 邊的權重縮放
+POP_NEG_ALPHA=0.0   # 關閉：流行度加權對 Grocery 效果不佳（流行度分布太平均）
+LAMBDA_CL=0.1     # CL4SRec 對比學習損失權重（0=關閉）
+CL_TAU=0.2        # InfoNCE 溫度（越小越嚴格）
 
 
 
@@ -98,5 +101,8 @@ python run.py \
     --alpha_cf $ALPHA_CF \
     --cooc_window $COOC_WINDOW \
     --cooc_weight $COOC_WEIGHT \
+    --pop_neg_alpha $POP_NEG_ALPHA \
+    --lambda_cl $LAMBDA_CL \
+    --cl_tau $CL_TAU \
     --gpu 0 \
     "$@" #彈性接收指令的參數（ex. resume or not）

@@ -9,11 +9,53 @@ import numpy as np
 import yaml
 from tqdm import tqdm
 
+import random
+
 # 匯入自定義模組
 from models import SDIASR
 from utils.data_loader import get_loader
 from utils.graph_utils import create_laplacian,create_sr_matrices
 from loss import SDIASRLoss
+
+
+# ============================================================
+# CL4SRec 序列增強函數
+# ============================================================
+def aug_crop(seqs, times, eta=0.7):
+    """Crop Augmentation：隨機截取連續子序列（保留 eta 比例）"""
+    B, L = seqs.shape
+    aug_seqs = torch.zeros_like(seqs)
+    aug_times = torch.zeros_like(times)
+    for b in range(B):
+        valid_mask = seqs[b] != 0
+        items = seqs[b][valid_mask]
+        t = times[b][valid_mask]
+        n = len(items)
+        if n == 0:
+            continue
+        crop_len = max(1, int(n * eta))
+        start = random.randint(0, max(0, n - crop_len))
+        aug_seqs[b, L - crop_len:] = items[start:start + crop_len]
+        aug_times[b, L - crop_len:] = t[start:start + crop_len]
+    return aug_seqs, aug_times
+
+
+def aug_mask(seqs, times, gamma=0.2):
+    """Mask Augmentation：隨機遮蔽 gamma 比例的非 padding 位置（保證至少保留 1 個）"""
+    rand = torch.rand_like(seqs.float())
+    valid = seqs != 0
+    mask_pos = valid & (rand < gamma)
+    # 若某行所有 valid item 都被遮蔽，強制保留 1 個（避免全 padding → Transformer NaN）
+    all_masked = (mask_pos.sum(dim=1) == valid.sum(dim=1)) & (valid.sum(dim=1) > 0)
+    for b in all_masked.nonzero(as_tuple=True)[0]:
+        valid_pos = valid[b].nonzero(as_tuple=True)[0]
+        keep = valid_pos[torch.randint(len(valid_pos), (1,), device=seqs.device)]
+        mask_pos[b, keep] = False
+    aug_seqs = seqs.masked_fill(mask_pos, 0)
+    aug_times = times.masked_fill(mask_pos, 0)
+    return aug_seqs, aug_times
+# ============================================================
+
 
 def main():
     parser = argparse.ArgumentParser(description="Run SD-IASR Model")
@@ -77,7 +119,12 @@ def main():
     parser.add_argument('--alpha_cf', type=float, default=0.0, help='非參數歷史 CF 分數權重（0=關閉）')
     parser.add_argument('--cooc_window', type=int, default=0, help='訓練序列共現圖滑動視窗大小（0=關閉）')
     parser.add_argument('--cooc_weight', type=float, default=1.0, help='共現邊相對於 also_view 邊的權重縮放')
-    
+    parser.add_argument('--pop_neg_alpha', type=float, default=0.0, help='流行度加權負採樣指數（0=均勻隨機，0.75=標準加權）')
+    parser.add_argument('--lambda_cl', type=float, default=0.0, help='CL4SRec 對比學習損失權重（0=關閉）')
+    parser.add_argument('--cl_tau', type=float, default=0.2, help='InfoNCE 溫度參數')
+    parser.add_argument('--cl_crop_eta', type=float, default=0.7, help='Crop 增強保留比例')
+    parser.add_argument('--cl_mask_gamma', type=float, default=0.2, help='Mask 增強遮蔽比例')
+
     args = parser.parse_args()
     
     # 建立時間標記字串
@@ -136,12 +183,21 @@ def main():
     val_history_matrix = prepare_history_matrix(raw_data['val_set']).to(device)
     test_history_matrix = prepare_history_matrix(raw_data['test_set']).to(device)
     #==================================================================================
-    
-    
-    
-    
-  
-    
+
+    # [新增] 流行度加權負採樣：預先計算商品流行度分布
+    item_pop_prob = None
+    if args.pop_neg_alpha > 0:
+        item_pop = np.zeros(num_items, dtype=np.float32)
+        for entry in raw_data['train_set']:
+            for item_id in list(entry[0]):
+                if item_id > 0:
+                    item_pop[item_id] += 1
+        item_pop_alpha = np.power(item_pop + 1e-8, args.pop_neg_alpha)
+        item_pop_alpha[0] = 0  # item 0 為 padding，永遠不採樣
+        item_pop_prob = torch.FloatTensor(item_pop_alpha / item_pop_alpha.sum()).to(device)
+        top10_prob = item_pop_prob.topk(10).values.sum().item()
+        print(f"Popularity-weighted neg sampling: alpha={args.pop_neg_alpha}, top-10 items cover {top10_prob*100:.2f}% of samples")
+
     # === 新增：價格特徵處理 (參考 SR-Rec) ===
     # 原始 features 結構: [cid2, cid3, price]
     raw_features = raw_data['features']
@@ -353,6 +409,7 @@ def main():
         for epoch in range(start_epoch, args.epochs):
             model.train()
             total_loss, total_l_seq, total_l_proto, total_l_spec, total_l_alpha = 0, 0, 0, 0, 0
+            total_l_cl = 0
             total_weights = torch.zeros(4)  # [w_sim_short, w_sim_long, w_cor_short, w_cor_long]
             total_feat_sim = 0
             
@@ -368,7 +425,13 @@ def main():
                 # Online Negative Sampling：取 targets[:, 0] 為正樣本，再隨機採 num_neg_train 個負樣本
                 # 這讓 Sampled Softmax 同時對 K 個競爭者排名，訓練信號遠強於 BPR (K=1)
                 pos_items = targets[:, 0].unsqueeze(1)  # [B, 1]
-                neg_items = torch.randint(1, num_items, (seqs.size(0), args.num_neg_train), device=device)  # [B, K]
+                if item_pop_prob is not None:
+                    # 流行度加權負採樣：熱門商品更常被選為競爭負樣本，訓練信號更強
+                    neg_items = torch.multinomial(
+                        item_pop_prob, seqs.size(0) * args.num_neg_train, replacement=True
+                    ).reshape(seqs.size(0), args.num_neg_train)
+                else:
+                    neg_items = torch.randint(1, num_items, (seqs.size(0), args.num_neg_train), device=device)  # [B, K]
                 target_indices = torch.cat([pos_items, neg_items], dim=1)  # [B, 1+K]
 
                 outputs = model(seqs, times, target_indices, adj_sim, adj_sim_dele, adj_cor, adj_cor_dele)
@@ -387,6 +450,49 @@ def main():
                 loss, l_seq, l_proto, l_spec, l_alpha = criterion(
                     scores, sim_scores, rel_scores, weights, u_sim, u_cor, p_sim_s, p_cor_s, x_sim_out, x_cor_out, model
                 )
+
+                # CL4SRec 序列對比學習
+                if args.lambda_cl > 0:
+                    # 生成兩個增強視圖：crop + mask
+                    aug1_seqs, aug1_times = aug_crop(seqs, times, args.cl_crop_eta)
+                    aug2_seqs, aug2_times = aug_mask(seqs, times, args.cl_mask_gamma)
+
+                    # 安全檢查：若增強後全為 padding，保留原序列最後一個有效 item
+                    for aug_s, aug_t in [(aug1_seqs, aug1_times), (aug2_seqs, aug2_times)]:
+                        empty_rows = (aug_s != 0).sum(dim=1) == 0
+                        if empty_rows.any():
+                            for b in empty_rows.nonzero(as_tuple=True)[0]:
+                                orig_valid = (seqs[b] != 0).nonzero(as_tuple=True)[0]
+                                if len(orig_valid) > 0:
+                                    last = orig_valid[-1]
+                                    aug_s[b, -1] = seqs[b, last]
+                                    aug_t[b, -1] = times[b, last]
+
+                    # 使用預計算的 x_sim_out/x_cor_out 查表（跳過 spectral disentangler）
+                    aug1_sim_embs = F.embedding(aug1_seqs, x_sim_out.detach())
+                    aug1_cor_embs = F.embedding(aug1_seqs, x_cor_out.detach())
+                    aug1_mask = (aug1_seqs == 0)
+
+                    aug2_sim_embs = F.embedding(aug2_seqs, x_sim_out.detach())
+                    aug2_cor_embs = F.embedding(aug2_seqs, x_cor_out.detach())
+                    aug2_mask = (aug2_seqs == 0)
+
+                    # 只重跑 sequential encoder（輕量）
+                    (_, z1_sim), (_, z1_cor) = model.sequential_encoder(aug1_sim_embs, aug1_cor_embs, aug1_times, aug1_mask)
+                    (_, z2_sim), (_, z2_cor) = model.sequential_encoder(aug2_sim_embs, aug2_cor_embs, aug2_times, aug2_mask)
+
+                    # 用戶表示 = 兩通道 att 向量之和（nan_to_num 防止殘留 NaN 汙染 loss）
+                    z1 = F.normalize(torch.nan_to_num(z1_sim + z1_cor), dim=-1)  # [B, D]
+                    z2 = F.normalize(torch.nan_to_num(z2_sim + z2_cor), dim=-1)  # [B, D]
+
+                    # 對稱 InfoNCE loss
+                    cl_sim_mat = torch.matmul(z1, z2.t()) / args.cl_tau  # [B, B]
+                    cl_labels = torch.arange(seqs.size(0), device=device)
+                    l_cl = (F.cross_entropy(cl_sim_mat, cl_labels) + F.cross_entropy(cl_sim_mat.t(), cl_labels)) / 2
+                    loss = loss + args.lambda_cl * l_cl
+                else:
+                    l_cl = torch.tensor(0.0)
+
                 loss.backward()
                 
                 # [新增] 梯度裁剪：將所有參數的梯度範數限制在 5.0 以內
@@ -399,6 +505,7 @@ def main():
                 total_l_proto += l_proto.item()
                 total_l_spec += l_spec.item()
                 total_l_alpha += l_alpha.item()
+                total_l_cl += l_cl.item()
                 total_weights += weights.mean(dim=0).detach().cpu()
                 total_feat_sim += feat_sim.item()
 
@@ -425,6 +532,7 @@ def main():
             avg_proto_loss = total_l_proto / num_batches
             avg_spec_loss = total_l_spec / num_batches
             avg_l_alpha = total_l_alpha / num_batches
+            avg_l_cl = total_l_cl / num_batches
             avg_weights = total_weights / num_batches
             avg_feat_sim = total_feat_sim / num_batches
 
@@ -491,7 +599,7 @@ def main():
             current_lr = optimizer.param_groups[0]['lr']
             
             # --- 完整印出所有指標 ---
-            print(f"Epoch {epoch} | TotalLoss: {avg_loss:.4f} | L_seq: {avg_l_seq:.4f} | L_spec: {avg_spec_loss:.4f} | L_alpha: {avg_l_alpha:.4f} | Weights: [{avg_weights[0]:.3f}, {avg_weights[1]:.3f}, {avg_weights[2]:.3f}, {avg_weights[3]:.3f}] | Feat_Sim: {avg_feat_sim:.4f}")
+            print(f"Epoch {epoch} | TotalLoss: {avg_loss:.4f} | L_seq: {avg_l_seq:.4f} | L_cl: {avg_l_cl:.4f} | L_spec: {avg_spec_loss:.4f} | L_alpha: {avg_l_alpha:.4f} | Weights: [{avg_weights[0]:.3f}, {avg_weights[1]:.3f}, {avg_weights[2]:.3f}, {avg_weights[3]:.3f}] | Feat_Sim: {avg_feat_sim:.4f}")
             print(f"Val HR@10: {avg_hr:.4f} | Val NDCG@10: {avg_ndcg:.4f} | Current LR: {current_lr}")        
             
             # 執行學習率調整：每個 epoch 結束後 step
