@@ -22,7 +22,7 @@ BERT_DIM=768
 LR=0.0005 #0.001 調小為 0.0005，稍微調降以穩定訓練
 BATCH_SIZE=256
 EPOCHS=1000
-PATIENCE=50
+PATIENCE=75
 MAX_SEQ_LEN=50
 
 # 3. SD-IASR 核心解耦參數
@@ -36,7 +36,7 @@ NHEAD=8      # 增加注意力頭數以提升模型表達能力
 
 #lr_scheduler 相關參數 (Warmup + MultiStep)
 WARM_UP_EPOCHS=5          # 前 5 個 epoch 線性增長 LR
-MILESTONES="50,100"       # 在 epoch 50 和 100 降速
+MILESTONES="82,157"       # 在 epoch 82 和 157 降速（補償 label_smoothing + dropout 造成的 ~17 epoch 落後）
 LR_GAMMA=0.5              # 每次降為原來的一半
 
 # loss 權重參數
@@ -46,7 +46,7 @@ LAMBDA_REG=0.01 # 提高正則化
 LAMBDA_PROTO=0.0  # 關閉：proto loss 與 BPR 目標衝突，移除以專注排名學習
 LAMBDA_SPEC=2.0   # 強力推開兩通道（原0.3太弱，Feat_Sim無法降低）
 TAU=0.3       # 強去噪溫度
-DROPOUT=0.3 # 防過擬合
+DROPOUT=0.4 # 提高 dropout 以加強正則化（0.3→0.4）
 
 num_prototypes=64 # 全局意圖原型的數量
 
@@ -61,8 +61,9 @@ ALPHA_CF=0.2      # 非參數歷史 CF 分數權重（0=關閉）
 COOC_WINDOW=5     # 訓練序列共現圖滑動視窗大小（0=關閉，5=考慮序列中相距5以內的商品對）
 COOC_WEIGHT=1.0   # 共現邊相對於 also_view 邊的權重縮放
 POP_NEG_ALPHA=0.0   # 關閉：流行度加權對 Grocery 效果不佳（流行度分布太平均）
-LAMBDA_CL=0.1     # CL4SRec 對比學習損失權重（0=關閉）
+LAMBDA_CL=0.05    # CL4SRec 對比學習損失權重（0.1→0.05，降低干擾）
 CL_TAU=0.2        # InfoNCE 溫度（越小越嚴格）
+LABEL_SMOOTHING=0.0  # 已停用：label smoothing 壓低 positive logit，損害 NDCG
 
 
 
@@ -104,5 +105,6 @@ python run.py \
     --pop_neg_alpha $POP_NEG_ALPHA \
     --lambda_cl $LAMBDA_CL \
     --cl_tau $CL_TAU \
+    --label_smoothing $LABEL_SMOOTHING \
     --gpu 0 \
     "$@" #彈性接收指令的參數（ex. resume or not）

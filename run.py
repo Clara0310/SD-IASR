@@ -122,6 +122,7 @@ def main():
     parser.add_argument('--pop_neg_alpha', type=float, default=0.0, help='流行度加權負採樣指數（0=均勻隨機，0.75=標準加權）')
     parser.add_argument('--lambda_cl', type=float, default=0.0, help='CL4SRec 對比學習損失權重（0=關閉）')
     parser.add_argument('--cl_tau', type=float, default=0.2, help='InfoNCE 溫度參數')
+    parser.add_argument('--label_smoothing', type=float, default=0.0, help='Label Smoothing 係數（0=關閉，0.1=常用值）')
     parser.add_argument('--cl_crop_eta', type=float, default=0.7, help='Crop 增強保留比例')
     parser.add_argument('--cl_mask_gamma', type=float, default=0.2, help='Mask 增強遮蔽比例')
 
@@ -357,7 +358,8 @@ def main():
         lambda_proto=args.lambda_proto,
         lambda_spec=args.lambda_spec,
         lambda_alpha=args.lambda_alpha,
-        tau=args.tau
+        tau=args.tau,
+        label_smoothing=args.label_smoothing
     )
     
     optimizer = optim.Adam(model.parameters(), lr=args.lr)

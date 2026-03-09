@@ -7,7 +7,7 @@ class SDIASRLoss(nn.Module):
     SD-IASR 專用損失函數模組
     包含 BPR 推薦損失與權重正則化。
     """
-    def __init__(self, lambda_1=1.0, lambda_2=1.0, lambda_reg=0.01, lambda_proto=0.1, lambda_spec=0.5, lambda_cl=0.005, lambda_alpha=0.5, tau=0.3):
+    def __init__(self, lambda_1=1.0, lambda_2=1.0, lambda_reg=0.01, lambda_proto=0.1, lambda_spec=0.5, lambda_cl=0.005, lambda_alpha=0.5, tau=0.3, label_smoothing=0.0):
         super(SDIASRLoss, self).__init__()
         self.lambda_1 = lambda_1
         self.lambda_2 = lambda_2
@@ -17,6 +17,7 @@ class SDIASRLoss(nn.Module):
         self.lambda_cl = lambda_cl
         self.lambda_alpha = lambda_alpha  # Alpha 熵正則化權重，防止雙通道崩塌成單通道
         self.tau = tau
+        self.label_smoothing = label_smoothing  # Label Smoothing：降低模型過度自信，縮小 val-test gap
 
     def bpr_loss(self, scores):
         """
@@ -67,7 +68,7 @@ class SDIASRLoss(nn.Module):
         # -log P(pos | pos + neg) = cross_entropy(scores, label=0)
         # 比 BPR 更強：同時對 K 個負樣本做 softmax 競爭，更容易把正樣本推進 top-K
         targets_zero = torch.zeros(scores.size(0), dtype=torch.long, device=scores.device)
-        l_seq = F.cross_entropy(scores, targets_zero)
+        l_seq = F.cross_entropy(scores, targets_zero, label_smoothing=self.label_smoothing)
 
         # 2. 原型聚類損失
         l_proto = self.calculate_proto_loss(p_sim_s) + self.calculate_proto_loss(p_cor_s)
