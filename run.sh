@@ -36,7 +36,7 @@ NHEAD=8      # 增加注意力頭數以提升模型表達能力
 
 #lr_scheduler 相關參數 (Warmup + MultiStep)
 WARM_UP_EPOCHS=5          # 前 5 個 epoch 線性增長 LR
-MILESTONES="82,157"       # 在 epoch 82 和 157 降速（補償 label_smoothing + dropout 造成的 ~17 epoch 落後）
+MILESTONES="40,80"        # full softmax 收斂快，plateau 預計 Ep35~50，在 Ep40/80 切 LR
 LR_GAMMA=0.5              # 每次降為原來的一半
 
 # loss 權重參數
@@ -106,5 +106,6 @@ python run.py \
     --lambda_cl $LAMBDA_CL \
     --cl_tau $CL_TAU \
     --label_smoothing $LABEL_SMOOTHING \
+    --use_full_softmax \
     --gpu 0 \
     "$@" #彈性接收指令的參數（ex. resume or not）

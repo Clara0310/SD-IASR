@@ -62,13 +62,15 @@ class SDIASRLoss(nn.Module):
         loss = -torch.mean(torch.sum(probs * log_probs, dim=-1))
         return loss
 
-    def forward(self, scores, sim_scores, rel_scores, weights, u_sim, u_cor, p_sim_s, p_cor_s, x_sim, x_cor, model):
-        # 1. Sampled Softmax 推薦損失
-        # scores: [B, 1+neg]，index 0 為正樣本
-        # -log P(pos | pos + neg) = cross_entropy(scores, label=0)
-        # 比 BPR 更強：同時對 K 個負樣本做 softmax 競爭，更容易把正樣本推進 top-K
-        targets_zero = torch.zeros(scores.size(0), dtype=torch.long, device=scores.device)
-        l_seq = F.cross_entropy(scores, targets_zero, label_smoothing=self.label_smoothing)
+    def forward(self, scores, sim_scores, rel_scores, weights, u_sim, u_cor, p_sim_s, p_cor_s, x_sim, x_cor, model, pos_indices=None):
+        # 1. 推薦損失
+        if pos_indices is not None:
+            # Full Softmax：scores [B, N_items]，target = 實際正樣本 item ID
+            l_seq = F.cross_entropy(scores, pos_indices, label_smoothing=self.label_smoothing)
+        else:
+            # Sampled Softmax：scores [B, 1+neg]，index 0 為正樣本
+            targets_zero = torch.zeros(scores.size(0), dtype=torch.long, device=scores.device)
+            l_seq = F.cross_entropy(scores, targets_zero, label_smoothing=self.label_smoothing)
 
         # 2. 原型聚類損失
         l_proto = self.calculate_proto_loss(p_sim_s) + self.calculate_proto_loss(p_cor_s)

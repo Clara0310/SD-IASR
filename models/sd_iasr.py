@@ -169,7 +169,62 @@ class SDIASR(nn.Module):
         )
         # [修改回傳值] 回傳 x_sim, x_cor 供 L_spec 正交解耦損失使用（取代 raw_sim, raw_cor）
         return scores, weights, sim_scores, rel_scores, feat_sim, u_sim, u_cor, proto_sim_scores, proto_cor_scores, x_sim, x_cor
-      
+
+    def forward_train_full(self, seq_indices, time_indices, adj_sim, adj_sim_dele, adj_cor, adj_cor_dele):
+        """
+        Full Softmax 訓練用 forward：與 forward() 邏輯完全相同，
+        但最後使用 predictor.forward_full() 對全部 N_items 計算 logits。
+        回傳 scores: [B, N_items]，loss 的 target 為實際 pos_item_id（非固定 0）。
+        額外成本：只比 forward() 多一個 item_proj([N,2D]→[N,D]) + matmul [B,D]×[D,N]。
+        """
+        # A. 全商品基礎嵌入
+        all_item_indices = torch.arange(self.item_num).to(seq_indices.device)
+        initial_embs = self.item_embedding(all_item_indices)
+        initial_embs = self.dropout(initial_embs)
+
+        # B. 譜解耦
+        raw_sim, _ = self.spectral_disentangler(initial_embs, adj_sim, adj_sim_dele)
+        _, raw_cor = self.spectral_disentangler(initial_embs, adj_cor, adj_cor_dele)
+        raw_sim = self.layer_norm(raw_sim)
+        raw_cor = self.layer_norm(raw_cor)
+
+        # 通道專用投影
+        id_residual = self.id_emb(all_item_indices)
+        x_sim = self.proj_sim(torch.cat([initial_embs, raw_sim], dim=-1)) + id_residual
+        x_cor = self.proj_cor(torch.cat([initial_embs, raw_cor], dim=-1)) + id_residual
+
+        with torch.no_grad():
+            feat_sim = F.cosine_similarity(x_sim, x_cor, dim=-1).mean()
+
+        # C. 序列嵌入
+        seq_sim_embs = F.embedding(seq_indices, x_sim)
+        seq_cor_embs = F.embedding(seq_indices, x_cor)
+
+        # D. Padding mask
+        mask = (seq_indices == 0)
+
+        # D2. 用戶譜特徵簽名
+        mask_float = (~mask).unsqueeze(-1).float()
+        seq_len_sum = mask_float.sum(dim=1).clamp(min=1)
+        user_spec_sim = (F.embedding(seq_indices, raw_sim) * mask_float).sum(dim=1) / seq_len_sum
+        user_spec_cor = (F.embedding(seq_indices, raw_cor) * mask_float).sum(dim=1) / seq_len_sum
+
+        # E. 雙通道序列編碼
+        sim_intents, cor_intents = self.sequential_encoder(seq_sim_embs, seq_cor_embs, time_indices, mask)
+        u_sim, u_cor = sim_intents[1], cor_intents[1]
+
+        # 原型分數
+        proto_sim_scores = torch.matmul(u_sim, self.sim_prototypes.t())
+        proto_cor_scores = torch.matmul(u_cor, self.cor_prototypes.t())
+
+        # F. Full softmax：對全部 N_items 計算 logits → [B, N_items]
+        scores = self.predictor.forward_full(
+            sim_intents, cor_intents, x_sim, x_cor, user_spec_sim, user_spec_cor
+        )
+
+        weights = torch.full((seq_indices.size(0), 4), 0.25, device=seq_indices.device)
+        return scores, weights, scores, scores, feat_sim, u_sim, u_cor, proto_sim_scores, proto_cor_scores, x_sim, x_cor
+
     def load_pretrain_embedding(self, cid2_emb, cid3_emb, item_to_cid, item_to_price):
         
         # self.item_embedding.weight.data.copy_(torch.from_numpy(embedding_matrix))

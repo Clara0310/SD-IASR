@@ -123,6 +123,7 @@ def main():
     parser.add_argument('--lambda_cl', type=float, default=0.0, help='CL4SRec 對比學習損失權重（0=關閉）')
     parser.add_argument('--cl_tau', type=float, default=0.2, help='InfoNCE 溫度參數')
     parser.add_argument('--label_smoothing', type=float, default=0.0, help='Label Smoothing 係數（0=關閉，0.1=常用值）')
+    parser.add_argument('--use_full_softmax', action='store_true', default=False, help='使用 Full Softmax 訓練（對全部 N_items 計算 logits，移除負採樣）')
     parser.add_argument('--cl_crop_eta', type=float, default=0.7, help='Crop 增強保留比例')
     parser.add_argument('--cl_mask_gamma', type=float, default=0.2, help='Mask 增強遮蔽比例')
 
@@ -424,34 +425,51 @@ def main():
 
                 optimizer.zero_grad()
 
-                # Online Negative Sampling：取 targets[:, 0] 為正樣本，再隨機採 num_neg_train 個負樣本
-                # 這讓 Sampled Softmax 同時對 K 個競爭者排名，訓練信號遠強於 BPR (K=1)
-                pos_items = targets[:, 0].unsqueeze(1)  # [B, 1]
-                if item_pop_prob is not None:
-                    # 流行度加權負採樣：熱門商品更常被選為競爭負樣本，訓練信號更強
-                    neg_items = torch.multinomial(
-                        item_pop_prob, seqs.size(0) * args.num_neg_train, replacement=True
-                    ).reshape(seqs.size(0), args.num_neg_train)
+                pos_items = targets[:, 0]  # [B] 實際正樣本 item ID
+
+                if args.use_full_softmax:
+                    # === Full Softmax 路徑：對全部 N_items 計算 logits ===
+                    outputs = model.forward_train_full(seqs, times, adj_sim, adj_sim_dele, adj_cor, adj_cor_dele)
+                    scores, weights, sim_scores, rel_scores, feat_sim, u_sim, u_cor, p_sim_s, p_cor_s, x_sim_out, x_cor_out = outputs
+
+                    if args.alpha_cf > 0:
+                        x_avg = (x_sim_out + x_cor_out) / 2  # [N, D]
+                        hist_mask = (seqs != 0).float().unsqueeze(-1)
+                        hist_count = hist_mask.sum(dim=1).clamp(min=1)
+                        u_hist = (F.embedding(seqs, x_avg) * hist_mask).sum(dim=1) / hist_count  # [B, D]
+                        cf_score = torch.matmul(u_hist, x_avg.t()) / (model.emb_dim ** 0.5)  # [B, N]
+                        scores = scores + args.alpha_cf * cf_score
+
+                    loss, l_seq, l_proto, l_spec, l_alpha = criterion(
+                        scores, sim_scores, rel_scores, weights, u_sim, u_cor, p_sim_s, p_cor_s, x_sim_out, x_cor_out, model,
+                        pos_indices=pos_items
+                    )
                 else:
-                    neg_items = torch.randint(1, num_items, (seqs.size(0), args.num_neg_train), device=device)  # [B, K]
-                target_indices = torch.cat([pos_items, neg_items], dim=1)  # [B, 1+K]
+                    # === Sampled Softmax 路徑（原本邏輯）===
+                    pos_items_unsq = pos_items.unsqueeze(1)  # [B, 1]
+                    if item_pop_prob is not None:
+                        neg_items = torch.multinomial(
+                            item_pop_prob, seqs.size(0) * args.num_neg_train, replacement=True
+                        ).reshape(seqs.size(0), args.num_neg_train)
+                    else:
+                        neg_items = torch.randint(1, num_items, (seqs.size(0), args.num_neg_train), device=device)  # [B, K]
+                    target_indices = torch.cat([pos_items_unsq, neg_items], dim=1)  # [B, 1+K]
 
-                outputs = model(seqs, times, target_indices, adj_sim, adj_sim_dele, adj_cor, adj_cor_dele)
-                scores, weights, sim_scores, rel_scores, feat_sim, u_sim, u_cor, p_sim_s, p_cor_s, x_sim_out, x_cor_out = outputs
+                    outputs = model(seqs, times, target_indices, adj_sim, adj_sim_dele, adj_cor, adj_cor_dele)
+                    scores, weights, sim_scores, rel_scores, feat_sim, u_sim, u_cor, p_sim_s, p_cor_s, x_sim_out, x_cor_out = outputs
 
-                # Non-parametric History CF：用 seqs 歷史的投影特徵均值，無新參數
-                if args.alpha_cf > 0:
-                    x_avg = (x_sim_out + x_cor_out) / 2  # [N, D]
-                    hist_mask = (seqs != 0).float().unsqueeze(-1)  # [B, L, 1]
-                    hist_count = hist_mask.sum(dim=1).clamp(min=1)  # [B, 1]
-                    u_hist = (F.embedding(seqs, x_avg) * hist_mask).sum(dim=1) / hist_count  # [B, D]
-                    x_avg_target = F.embedding(target_indices, x_avg)  # [B, 1+K, D]
-                    cf_score = torch.bmm(x_avg_target, u_hist.unsqueeze(2)).squeeze(2) / (model.emb_dim ** 0.5)
-                    scores = scores + args.alpha_cf * cf_score
+                    if args.alpha_cf > 0:
+                        x_avg = (x_sim_out + x_cor_out) / 2  # [N, D]
+                        hist_mask = (seqs != 0).float().unsqueeze(-1)
+                        hist_count = hist_mask.sum(dim=1).clamp(min=1)
+                        u_hist = (F.embedding(seqs, x_avg) * hist_mask).sum(dim=1) / hist_count
+                        x_avg_target = F.embedding(target_indices, x_avg)  # [B, 1+K, D]
+                        cf_score = torch.bmm(x_avg_target, u_hist.unsqueeze(2)).squeeze(2) / (model.emb_dim ** 0.5)
+                        scores = scores + args.alpha_cf * cf_score
 
-                loss, l_seq, l_proto, l_spec, l_alpha = criterion(
-                    scores, sim_scores, rel_scores, weights, u_sim, u_cor, p_sim_s, p_cor_s, x_sim_out, x_cor_out, model
-                )
+                    loss, l_seq, l_proto, l_spec, l_alpha = criterion(
+                        scores, sim_scores, rel_scores, weights, u_sim, u_cor, p_sim_s, p_cor_s, x_sim_out, x_cor_out, model
+                    )
 
                 # CL4SRec 序列對比學習
                 if args.lambda_cl > 0:
