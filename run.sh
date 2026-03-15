@@ -65,7 +65,21 @@ LAMBDA_CL=0.05    # CL4SRec 對比學習損失權重（0.1→0.05，降低干擾
 CL_TAU=0.2        # InfoNCE 溫度（越小越嚴格）
 LABEL_SMOOTHING=0.0  # 已停用：label smoothing 壓低 positive logit，損害 NDCG
 
+# ====================================================
+# 資料集特定覆蓋（在預設值之後套用）
+# ====================================================
+if [[ "$DATASET" == "Video_Games" ]]; then
+    NEG_SAMPLE=50       # 4580 items，200 negatives=4.4% 太難；改為 50≈1.1%
+    LAMBDA_SPEC=0.5     # 小資料集過度正則化會壓縮表達能力
+    DROPOUT=0.5         # 小資料集需要更強的 dropout 防過擬合
+    MILESTONES="200,400"  # 34 batches/epoch，Ep40 只有 1360 步（≈Grocery Ep1.3），太早降 LR
+    PATIENCE=150        # 確保至少看到 Ep200 milestone 降 LR 的效果才 early stop
+fi
 
+if [[ "$DATASET" == "Sports_and_Outdoors" ]]; then
+    COOC_WINDOW=0       # base graph 已有 3M edges，cooc 對 Sports 邊際效益低且拖慢速度
+    PATIENCE=40         # 2620 batches/epoch，每 epoch 24 分鐘，PATIENCE=40 已有 16 小時緩衝
+fi
 
 
 # 4. 執行訓練指令
