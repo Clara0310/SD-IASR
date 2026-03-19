@@ -107,6 +107,7 @@ def main():
     parser.add_argument('--resume', action='store_true', help='是否從上次的最佳權重續跑')
     # [新增] 續跑模式專用的模型路徑
     parser.add_argument('--resume_path', type=str, default=None, help='續跑模式下，指定要載入的模型路徑 (.pth)')
+    parser.add_argument('--reset_scheduler', action='store_true', help='resume 時不載入 scheduler state，使用新的 milestones')
     
     # [新增] 測試模式專用參數
     parser.add_argument('--test_only', action='store_true', help='只執行測試，跳過訓練')
@@ -396,7 +397,13 @@ def main():
         checkpoint = torch.load(load_resume_path, map_location=device)
         model.load_state_dict(checkpoint['model_state_dict'])
         optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
-        scheduler.load_state_dict(checkpoint['scheduler_state_dict'])
+        if not args.reset_scheduler:
+            scheduler.load_state_dict(checkpoint['scheduler_state_dict'])
+        else:
+            # Fast-forward scheduler to current epoch so milestones are correctly applied
+            for _ in range(checkpoint['epoch'] + 1):
+                scheduler.step()
+            print(f"Scheduler reset with new milestones, fast-forwarded to Epoch {checkpoint['epoch'] + 1}, LR={scheduler.get_last_lr()[0]:.6f}")
         best_hr = checkpoint['best_hr']
         start_epoch = checkpoint['epoch'] + 1
         print(f"續跑成功！從 Epoch {start_epoch} 繼續，目前最佳 HR@10={best_hr:.4f}")
