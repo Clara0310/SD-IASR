@@ -32,6 +32,17 @@ matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import matplotlib.cm as cm
 
+# 全域字體放大
+plt.rcParams.update({
+    'font.size': 16,
+    'axes.titlesize': 18,
+    'axes.labelsize': 16,
+    'xtick.labelsize': 14,
+    'ytick.labelsize': 14,
+    'legend.fontsize': 14,
+    'figure.titlesize': 20,
+})
+
 from models import SDIASR
 from utils.graph_utils import create_sr_matrices
 
@@ -272,7 +283,7 @@ def plot_tsne_comparison(embs, features, output_dir, top_k_cid3=15, max_sample=5
 
     fig, axes = plt.subplots(2, 2, figsize=(16, 14))
     fig.suptitle(f't-SNE Visualization of Item Embeddings (Top-{top_k_cid3} CID3 Categories)',
-                 fontsize=14, fontweight='bold')
+                 fontsize=20, fontweight='bold')
 
     for ax, (key, title) in zip(axes.flatten(), emb_pairs):
         data = embs[key][indices]
@@ -281,7 +292,7 @@ def plot_tsne_comparison(embs, features, output_dir, top_k_cid3=15, max_sample=5
         coords = tsne.fit_transform(data)
 
         ax.scatter(coords[:, 0], coords[:, 1], c=colors, s=3, alpha=0.6)
-        ax.set_title(title, fontsize=12)
+        ax.set_title(title, fontsize=16)
         ax.set_xticks([])
         ax.set_yticks([])
 
@@ -291,7 +302,7 @@ def plot_tsne_comparison(embs, features, output_dir, top_k_cid3=15, max_sample=5
                                    label=f'CID3={l} ({cnt[l]})')
                        for l in unique_labels]
     fig.legend(handles=legend_elements, loc='center right', bbox_to_anchor=(1.12, 0.5),
-               fontsize=8, ncol=1)
+               fontsize=12, ncol=1)
 
     plt.tight_layout(rect=[0, 0, 0.88, 0.95])
     save_path = os.path.join(output_dir, 'tsne_4channel_comparison.png')
@@ -330,8 +341,8 @@ def plot_sim_vs_cor_tsne(embs, features, output_dir, top_k_cid3=15, max_sample=3
     fig, ax = plt.subplots(figsize=(10, 8))
     ax.scatter(coords_sim[:, 0], coords_sim[:, 1], c='#2196F3', s=3, alpha=0.4, label='x_sim (Similarity)')
     ax.scatter(coords_cor[:, 0], coords_cor[:, 1], c='#FF5722', s=3, alpha=0.4, label='x_cor (Complementarity)')
-    ax.legend(fontsize=11, markerscale=5)
-    ax.set_title('t-SNE: Similarity vs Complementarity Space Separation', fontsize=13, fontweight='bold')
+    ax.legend(fontsize=14, markerscale=5)
+    ax.set_title('t-SNE: Similarity vs Complementarity Space Separation', fontsize=18, fontweight='bold')
     ax.set_xticks([])
     ax.set_yticks([])
 
@@ -353,7 +364,7 @@ def plot_feat_sim_distribution(metrics, output_dir):
         ax.hist(data, bins=100, color='#42A5F5', edgecolor='white', alpha=0.8)
         ax.axvline(data.mean(), color='red', linestyle='--', linewidth=1.5,
                    label=f'Mean={data.mean():.4f}')
-        ax.set_title(title, fontsize=11)
+        ax.set_title(title, fontsize=16)
         ax.set_xlabel('Cosine Similarity')
         ax.set_ylabel('# Items')
         ax.legend()
@@ -392,18 +403,18 @@ def plot_training_curve(log_path, output_dir):
     fig, axes = plt.subplots(1, 3, figsize=(16, 4.5))
 
     axes[0].plot(epochs, feat_sims, color='#2196F3', linewidth=1)
-    axes[0].set_title('Feat_Sim (x_sim ⊥ x_cor) over Training', fontsize=11)
+    axes[0].set_title('Feat_Sim (x_sim ⊥ x_cor) over Training', fontsize=16)
     axes[0].set_xlabel('Epoch')
     axes[0].set_ylabel('Cosine Similarity')
     axes[0].axhline(0, color='gray', linestyle=':', linewidth=0.5)
 
     axes[1].plot(epochs, l_specs, color='#FF5722', linewidth=1)
-    axes[1].set_title('L_spec (Orthogonality Loss) over Training', fontsize=11)
+    axes[1].set_title('L_spec (Orthogonality Loss) over Training', fontsize=16)
     axes[1].set_xlabel('Epoch')
     axes[1].set_ylabel('Loss')
 
     axes[2].plot(epochs, l_seqs, color='#4CAF50', linewidth=1)
-    axes[2].set_title('L_seq (Recommendation Loss) over Training', fontsize=11)
+    axes[2].set_title('L_seq (Recommendation Loss) over Training', fontsize=16)
     axes[2].set_xlabel('Epoch')
     axes[2].set_ylabel('Loss')
 
@@ -469,9 +480,9 @@ def compute_per_category_analysis(embs, features, output_dir, top_k=20):
     ax.bar(x, [r['cor_intra'] for r in results], width, label='Cor Intra-class', color='#FF5722')
     ax.bar(x + width, [r['cross_channel'] for r in results], width, label='Cross-channel', color='#9E9E9E')
     ax.set_xticks(x)
-    ax.set_xticklabels([f"C{r['cid3']}" for r in results], rotation=45, fontsize=8)
+    ax.set_xticklabels([f"C{r['cid3']}" for r in results], rotation=45, fontsize=12)
     ax.set_ylabel('Cosine Similarity')
-    ax.set_title('Per-Category Intra-class Similarity & Cross-channel Orthogonality', fontsize=12)
+    ax.set_title('Per-Category Intra-class Similarity & Cross-channel Orthogonality', fontsize=18)
     ax.legend()
     plt.tight_layout()
     save_path = os.path.join(output_dir, 'per_category_analysis.png')
