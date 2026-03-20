@@ -29,6 +29,17 @@ import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 
+# 全域字體放大
+plt.rcParams.update({
+    'font.size': 16,
+    'axes.titlesize': 18,
+    'axes.labelsize': 16,
+    'xtick.labelsize': 14,
+    'ytick.labelsize': 14,
+    'legend.fontsize': 14,
+    'figure.titlesize': 20,
+})
+
 from models import SDIASR
 from utils.graph_utils import create_sr_matrices
 
@@ -187,7 +198,7 @@ def analyze_projection_weights(model, output_dir):
 
     # 權重矩陣視覺化
     fig, axes = plt.subplots(2, 3, figsize=(16, 8))
-    fig.suptitle('Projection Layer Weight Comparison: proj_sim vs proj_cor', fontsize=13, fontweight='bold')
+    fig.suptitle('Projection Layer Weight Comparison: proj_sim vs proj_cor', fontsize=20, fontweight='bold')
 
     for row, (idx, name) in enumerate(layers):
         w_sim = model.proj_sim[idx].weight.data.cpu().numpy()
@@ -205,7 +216,7 @@ def analyze_projection_weights(model, output_dir):
                                vmin=-vmax * 0.3, vmax=vmax * 0.3)
             else:
                 im = ax.imshow(data, aspect='auto', cmap='viridis', vmin=-vmax, vmax=vmax)
-            ax.set_title(title, fontsize=10)
+            ax.set_title(title, fontsize=16)
             plt.colorbar(im, ax=ax, fraction=0.046)
 
     plt.tight_layout(rect=[0, 0, 1, 0.95])
@@ -323,7 +334,7 @@ def analyze_user_clustering(model, device, adj_sim, adj_sim_dele, adj_cor, adj_c
     # ---- 視覺化 1：箱型圖 ----
     fig, axes = plt.subplots(1, 3, figsize=(15, 5))
     fig.suptitle('User Sequence Clustering: x_sim vs x_cor by Repeat Purchase Group',
-                 fontsize=13, fontweight='bold')
+                 fontsize=20, fontweight='bold')
 
     for g, ax in enumerate(axes):
         data = [sim_clustering[g], cor_clustering[g]]
@@ -333,14 +344,14 @@ def analyze_user_clustering(model, device, adj_sim, adj_sim_dele, adj_cor, adj_c
         bp['boxes'][0].set_alpha(0.7)
         bp['boxes'][1].set_facecolor('#FF5722')
         bp['boxes'][1].set_alpha(0.7)
-        ax.set_title(f'{group_names[g]}', fontsize=11)
+        ax.set_title(f'{group_names[g]}', fontsize=16)
         ax.set_ylabel('Intra-sequence Cosine Similarity')
 
         # 加上 t-test 結果
         t_stat, p_val = stats.ttest_ind(sim_clustering[g], cor_clustering[g])
         sig = '***' if p_val < 0.001 else '**' if p_val < 0.01 else '*' if p_val < 0.05 else 'n.s.'
         ax.text(0.5, 0.95, f'p={p_val:.2e} {sig}', transform=ax.transAxes,
-                ha='center', va='top', fontsize=9, style='italic')
+                ha='center', va='top', fontsize=13, style='italic')
 
     plt.tight_layout(rect=[0, 0, 1, 0.93])
     save_path = os.path.join(output_dir, 'user_clustering_boxplot.png')
@@ -351,7 +362,7 @@ def analyze_user_clustering(model, device, adj_sim, adj_sim_dele, adj_cor, adj_c
     # ---- 視覺化 2：分布對比 + 統計檢定 ----
     fig, axes = plt.subplots(2, 3, figsize=(16, 8))
     fig.suptitle('Intra-sequence Similarity Distribution by User Group',
-                 fontsize=13, fontweight='bold')
+                 fontsize=20, fontweight='bold')
 
     for g in range(3):
         # x_sim 分布
@@ -359,8 +370,8 @@ def analyze_user_clustering(model, device, adj_sim, adj_sim_dele, adj_cor, adj_c
                         edgecolor='white', label='x_sim')
         axes[0, g].hist(cor_clustering[g], bins=50, alpha=0.7, color='#FF5722',
                         edgecolor='white', label='x_cor')
-        axes[0, g].set_title(f'{group_names[g]}', fontsize=11)
-        axes[0, g].legend(fontsize=9)
+        axes[0, g].set_title(f'{group_names[g]}', fontsize=16)
+        axes[0, g].legend(fontsize=13)
         if g == 0:
             axes[0, g].set_ylabel('# Users')
 
@@ -370,8 +381,8 @@ def analyze_user_clustering(model, device, adj_sim, adj_sim_dele, adj_cor, adj_c
         axes[1, g].axvline(0, color='black', linestyle='--', linewidth=1)
         axes[1, g].axvline(diff.mean(), color='red', linestyle='-', linewidth=1.5,
                            label=f'Mean={diff.mean():.4f}')
-        axes[1, g].set_title(f'Difference (sim - cor)', fontsize=10)
-        axes[1, g].legend(fontsize=9)
+        axes[1, g].set_title(f'Difference (sim - cor)', fontsize=16)
+        axes[1, g].legend(fontsize=13)
         if g == 0:
             axes[1, g].set_ylabel('# Users')
 
@@ -442,8 +453,8 @@ def plot_repeat_ratio_distribution(ratios, groups, p33, p67, output_dir):
     ax.axvline(p67, color='gray', linestyle=':', linewidth=1, label=f'P67={p67:.3f}')
     ax.set_xlabel('Repeat Purchase Ratio (by CID3)')
     ax.set_ylabel('# Users')
-    ax.set_title('User Repeat Purchase Ratio Distribution', fontsize=12, fontweight='bold')
-    ax.legend(fontsize=9)
+    ax.set_title('User Repeat Purchase Ratio Distribution', fontsize=18, fontweight='bold')
+    ax.legend(fontsize=13)
 
     plt.tight_layout()
     save_path = os.path.join(output_dir, 'repeat_ratio_distribution.png')
@@ -475,7 +486,7 @@ def plot_summary_bar(sim_clustering, cor_clustering, output_dir):
     ax.set_xticklabels(group_names)
     ax.set_ylabel('Mean Intra-sequence Cosine Similarity')
     ax.set_title('Semantic Division of Labor: x_sim vs x_cor by User Group',
-                 fontsize=12, fontweight='bold')
+                 fontsize=18, fontweight='bold')
     ax.legend()
 
     plt.tight_layout()
