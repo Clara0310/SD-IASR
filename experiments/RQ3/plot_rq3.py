@@ -106,7 +106,7 @@ def plot_dataset(dataset, output_dir):
                    edgecolor=COLORS[model], linewidth=1)
 
     ax.set_xticks(x)
-    ax.set_xticklabels(METRICS)
+    ax.set_xticklabels(['' ] * len(METRICS))
     ax.set_ylabel('Score')
     ax.set_title(f'{title}', fontweight='bold')
     ax.legend(loc='upper left', framealpha=0.9)
@@ -138,7 +138,7 @@ def plot_dataset(dataset, output_dir):
     ax_table.set_ylim(0, total_rows + 1)
 
     # 重新畫分隔線（多一列）
-    for row_y in range(total_rows + 2):
+    for row_y in range(total_rows + 1):
         ax_table.plot([name_x, x_right], [row_y, row_y],
                       color='#AAAAAA', linewidth=0.6, clip_on=False)
 
@@ -183,7 +183,8 @@ def plot_dataset(dataset, output_dir):
                       ha='center', va='center', fontsize=11,
                       color='black', fontweight='bold')
 
-    plt.tight_layout(h_pad=0.5)
+    plt.tight_layout(h_pad=0)
+    plt.subplots_adjust(hspace=0)
     fname = dataset.replace(' ', '_') + '_performance.png'
     save_path = os.path.join(output_dir, fname)
     fig.savefig(save_path, dpi=200, bbox_inches='tight')
