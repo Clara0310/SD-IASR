@@ -17,7 +17,7 @@ EMB_DIM=128
 LR=0.0005
 BATCH_SIZE=256
 EPOCHS=1000
-PATIENCE=50
+PATIENCE=75
 LOW_K=5
 MID_K=5
 LAYERS=2
@@ -26,16 +26,17 @@ LAMBDA_SPEC=2.0
 LAMBDA_PROTO=0.0
 LAMBDA_ALPHA=0.0
 TAU=0.3
-DROPOUT=0.3
+DROPOUT=0.4
 DECAY_DAYS=0.002
 NEG_SAMPLE=200
 TEST_FREQ=10
 COOC_WINDOW=5
 COOC_WEIGHT=1.0
-MILESTONES="50,100"
+MILESTONES="82,157"
 LR_GAMMA=0.5
-LAMBDA_CL=0.1
+LAMBDA_CL=0.05
 CL_TAU=0.2
+ALPHA_CF=0.2
 
 COMMON_ARGS="--dataset ${DATASET} \
   --embedding_dim ${EMB_DIM} --lr ${LR} --batch_size ${BATCH_SIZE} \
@@ -46,7 +47,8 @@ COMMON_ARGS="--dataset ${DATASET} \
   --num_neg_train ${NEG_SAMPLE} --test_freq ${TEST_FREQ} \
   --cooc_window ${COOC_WINDOW} --cooc_weight ${COOC_WEIGHT} \
   --milestones ${MILESTONES} --lr_gamma ${LR_GAMMA} \
-  --lambda_cl ${LAMBDA_CL} --cl_tau ${CL_TAU}"
+  --lambda_cl ${LAMBDA_CL} --cl_tau ${CL_TAU} \
+  --alpha_cf ${ALPHA_CF}"
 
 run_variant() {
     local VARIANT=$1
