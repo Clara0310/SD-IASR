@@ -275,10 +275,10 @@ def plot_tsne_comparison(embs, features, output_dir, top_k_cid3=15, max_sample=5
 
     # 繪製四個子圖：raw_sim, raw_cor, x_sim, x_cor
     emb_pairs = [
-        ('raw_sim_normed', 'Raw Similarity Channel (Low-pass)'),
-        ('raw_cor_normed', 'Raw Complementarity Channel (Mid-pass)'),
-        ('x_sim', 'Projected Similarity Channel'),
-        ('x_cor', 'Projected Complementarity Channel'),
+        ('raw_sim_normed', 'Raw Similarity Feature (Low-pass)'),
+        ('raw_cor_normed', 'Raw Complementarity Feature (Mid-pass)'),
+        ('x_sim', 'Projected Similarity Feature'),
+        ('x_cor', 'Projected Complementarity Feature'),
     ]
 
     fig, axes = plt.subplots(2, 2, figsize=(16, 14))
@@ -403,18 +403,18 @@ def plot_training_curve(log_path, output_dir):
     fig, axes = plt.subplots(1, 3, figsize=(16, 4.5))
 
     axes[0].plot(epochs, feat_sims, color='#2196F3', linewidth=1)
-    axes[0].set_title('Feat_Sim (x_sim ⊥ x_cor) over Training', fontsize=16)
+    axes[0].set_title(r'Feat_Sim ($x_{sim}$ ⊥ $x_{cor}$) over Training', fontsize=16)
     axes[0].set_xlabel('Epoch')
     axes[0].set_ylabel('Cosine Similarity')
     axes[0].axhline(0, color='gray', linestyle=':', linewidth=0.5)
 
     axes[1].plot(epochs, l_specs, color='#FF5722', linewidth=1)
-    axes[1].set_title('L_spec (Orthogonality Loss) over Training', fontsize=16)
+    axes[1].set_title(r'$L_{orth}$ (Orthogonality Loss) over Training', fontsize=16)
     axes[1].set_xlabel('Epoch')
     axes[1].set_ylabel('Loss')
 
     axes[2].plot(epochs, l_seqs, color='#4CAF50', linewidth=1)
-    axes[2].set_title('L_seq (Recommendation Loss) over Training', fontsize=16)
+    axes[2].set_title(r'$L_{seq}$ (Recommendation Loss) over Training', fontsize=16)
     axes[2].set_xlabel('Epoch')
     axes[2].set_ylabel('Loss')
 
