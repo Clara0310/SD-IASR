@@ -231,13 +231,38 @@ def analyze_projection_weights(model, output_dir):
 # ============================================================
 # 2. 使用者分群
 # ============================================================
+def extract_unique_user_sequences(train_set):
+    """
+    train_set 為增強訓練集（每位使用者的所有前綴子序列）。
+    每位使用者的條目以遞增序列長度排列，長度重置為 1 代表新使用者開始。
+    回傳每位唯一使用者的完整訓練序列（最長前綴 + 目標物品 entry[2]）。
+    格式：List of (full_seq: List[int], entry)
+    """
+    user_data = []
+    last_entry = None
+    for entry in train_set:
+        seq = [x for x in list(entry[0]) if x != 0]
+        if len(seq) == 1 and last_entry is not None:
+            prefix = [x for x in list(last_entry[0]) if x != 0]
+            full_seq = prefix + [int(last_entry[2])]
+            user_data.append((full_seq, last_entry))
+        last_entry = entry
+    if last_entry is not None:
+        prefix = [x for x in list(last_entry[0]) if x != 0]
+        full_seq = prefix + [int(last_entry[2])]
+        user_data.append((full_seq, last_entry))
+    return user_data
+
+
 def compute_user_repeat_ratio(raw_data, features):
     """計算每位使用者的重複購買比例（基於 CID3 類別）"""
     train_set = raw_data['train_set']
+    user_data = extract_unique_user_sequences(train_set)
+    print(f"  唯一使用者數: {len(user_data)}")
     user_repeat_ratios = []
 
-    for entry in train_set:
-        seq = [x for x in list(entry[0]) if x != 0]
+    for full_seq, entry in user_data:
+        seq = full_seq
         if len(seq) < 2:
             user_repeat_ratios.append(0.0)
             continue
@@ -285,7 +310,7 @@ def analyze_user_clustering(model, device, adj_sim, adj_sim_dele, adj_cor, adj_c
         x_sim = x_sim.cpu()
         x_cor = x_cor.cpu()
 
-    train_set = raw_data['train_set']
+    user_data = extract_unique_user_sequences(raw_data['train_set'])
     group_names = ['Low Repeat', 'Mid Repeat', 'High Repeat']
 
     # 對每個使用者計算其歷史序列在 x_sim / x_cor 空間的平均 pairwise cosine similarity
@@ -294,7 +319,7 @@ def analyze_user_clustering(model, device, adj_sim, adj_sim_dele, adj_cor, adj_c
 
     # 取樣使用者
     np.random.seed(42)
-    n_total = len(train_set)
+    n_total = len(user_data)
     if max_users > 0 and n_total > max_users:
         sample_idx = np.random.choice(n_total, max_users, replace=False)
     else:
@@ -303,8 +328,7 @@ def analyze_user_clustering(model, device, adj_sim, adj_sim_dele, adj_cor, adj_c
     print(f"  分析 {len(sample_idx)} 位使用者...")
 
     for uid in sample_idx:
-        entry = train_set[uid]
-        seq = [x for x in list(entry[0]) if x != 0]
+        seq, entry = user_data[uid]
         if len(seq) < 3:
             continue
 
@@ -387,13 +411,19 @@ def analyze_user_clustering(model, device, adj_sim, adj_sim_dele, adj_cor, adj_c
 
     for g in range(3):
         # x_sim 分布
+        sim_mean = np.mean(sim_clustering[g])
+        cor_mean = np.mean(cor_clustering[g])
         axes[0, g].hist(sim_clustering[g], bins=50, alpha=0.7, color='#2196F3',
                         edgecolor='white', label='$x_{sim}$')
         axes[0, g].hist(cor_clustering[g], bins=50, alpha=0.7, color='#FF5722',
                         edgecolor='white', label='$x_{cor}$')
+        axes[0, g].axvline(sim_mean, color='#1565C0', linestyle='--', linewidth=1.5,
+                           label=f'$\\bar{{x}}_{{sim}}$={sim_mean:.3f}')
+        axes[0, g].axvline(cor_mean, color='#BF360C', linestyle='--', linewidth=1.5,
+                           label=f'$\\bar{{x}}_{{cor}}$={cor_mean:.3f}')
         axes[0, g].set_title(f'{group_names[g]}', fontsize=16)
         axes[0, g].set_xlabel('Intra-sequence Cosine Similarity', fontsize=11)
-        axes[0, g].legend(fontsize=13)
+        axes[0, g].legend(fontsize=11)
         axes[0, g].set_ylabel('# Users', fontsize=11)
 
         # 差值分布 (sim - cor)
